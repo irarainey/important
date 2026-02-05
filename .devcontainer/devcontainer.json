@@ -7,6 +7,9 @@
   "features": {
     "ghcr.io/va-h/devcontainers-features/uv:1": {
       "pythonVersion": "3"
+    },
+    "ghcr.io/devcontainers/features/python:1": {
+      "installTools": true
     }
   },
   "customizations": {
@@ -27,6 +30,6 @@
       }
     }
   },
-  "postCreateCommand": "npm install",
+  "postCreateCommand": "npm install && ./scripts/download-python-standalone.sh linux",
   "remoteUser": "node"
 }
