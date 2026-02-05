@@ -42,12 +42,12 @@
     "commands": [
       {
         "command": "important.fixImports",
-        "title": "Fix Imports in This File with Important",
+        "title": "Fix Imports in This File",
         "category": "Important"
       },
       {
         "command": "important.validateImports",
-        "title": "Validate Imports in This File with Important",
+        "title": "Validate Imports in This File",
         "category": "Important"
       }
     ],
