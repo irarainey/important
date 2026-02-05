@@ -56,7 +56,7 @@ Access via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-click conte
 Or via command line:
 
 ```bash
-code --install-extension important-0.0.2.vsix
+code --install-extension important-0.0.3.vsix
 ```
 
 ## Configuration
@@ -150,10 +150,8 @@ important/
 │   └── utils/                  # Utility modules
 │       ├── stdlib-modules.ts   # Python standard library module list
 │       └── text-utils.ts       # Text/regex utilities
-├── python-runtime/             # Bundled Python runtimes with isort
-│   ├── linux/                  # Linux x86_64 runtime
-│   ├── darwin/                 # macOS x86_64 runtime
-│   └── win/                    # Windows x86_64 runtime
+├── python-runtime/             # Python runtimes (for future isort integration)
+│   └── README.md               # Runtime build instructions
 ├── examples/
 │   └── sample_project/         # Sample Python project for testing
 │       └── src/
@@ -181,23 +179,23 @@ important/
 
 The sample project includes intentional import violations for testing:
 
-| File         | Violations                                         |
-| ------------ | -------------------------------------------------- |
-| `main.py`    | Multiple imports, wrong order, unused, wildcard    |
-| `utils.py`   | Relative import, symbol import, wrong alphabetical |
-| `helpers.py` | Multiple imports, unused, parent relative import   |
-| `models.py`  | ✅ Clean - no issues (for comparison)              |
+| File                     | Violations                                                     |
+| ------------------------ | -------------------------------------------------------------- |
+| `src/main.py`            | Multiple imports, wrong order, unused, wildcard, symbol import |
+| `src/utils/utils.py`     | Symbol import, wrong alphabetical order                        |
+| `src/helpers/helpers.py` | Multiple imports on one line, unused import                    |
+| `src/models/models.py`   | ✅ Clean - no issues (for comparison)                          |
 
 ### Available Scripts
 
-| Script                  | Description                                         |
-| ----------------------- | --------------------------------------------------- |
-| `npm run compile`       | Build with source maps                              |
-| `npm run watch`         | Build and watch for changes                         |
-| `npm run lint`          | Run ESLint                                          |
-| `npm run package`       | Create .vsix package                                |
-| `npm run build:runtime` | Download and set up bundled Python runtimes         |
-| `npm run package:full`  | Build runtime + create .vsix package (for releases) |
+| Script                  | Description                                             |
+| ----------------------- | ------------------------------------------------------- |
+| `npm run compile`       | Build with source maps                                  |
+| `npm run watch`         | Build and watch for changes                             |
+| `npm run lint`          | Run ESLint                                              |
+| `npm run package`       | Create .vsix package                                    |
+| `npm run build:runtime` | Download Python runtimes (for future isort integration) |
+| `npm run package:full`  | Build runtime + create .vsix package                    |
 
 ## Requirements
 

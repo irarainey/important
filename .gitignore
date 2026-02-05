@@ -13,6 +13,10 @@ package/
 python-runtime/linux/**
 python-runtime/darwin/**
 python-runtime/win/**
+# Keep .gitkeep files to preserve folder structure
+!python-runtime/linux/.gitkeep
+!python-runtime/darwin/.gitkeep
+!python-runtime/win/.gitkeep
 .python-downloads/
 .python-packages/
 
