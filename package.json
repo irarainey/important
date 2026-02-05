@@ -1,0 +1,142 @@
+{
+  "name": "important",
+  "displayName": "Important",
+  "description": "A Visual Studio Code extension to validate and format Python import statements according to the Google Python Style Guide.",
+  "icon": "resources/images/logo.png",
+  "version": "0.0.2",
+  "publisher": "irarainey",
+  "author": {
+    "name": "Ira Rainey",
+    "email": "ira.rainey@microsoft.com"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Linters",
+    "Formatters"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/irarainey/important"
+  },
+  "galleryBanner": {
+    "color": "#3a3d41",
+    "theme": "dark"
+  },
+  "keywords": [
+    "python",
+    "imports",
+    "linter",
+    "formatter",
+    "google-style"
+  ],
+  "license": "SEE LICENSE IN LICENSE.md",
+  "homepage": "https://github.com/irarainey/important/blob/main/README.md",
+  "activationEvents": [
+    "onLanguage:python",
+    "onStartupFinished"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "important.fixImports",
+        "title": "Fix Imports in This File",
+        "category": "Important"
+      },
+      {
+        "command": "important.validateImports",
+        "title": "Validate Imports in This File",
+        "category": "Important"
+      },
+      {
+        "command": "important.sortImportsWithIsort",
+        "title": "Sort Imports with isort",
+        "category": "Important"
+      }
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "important.fixImports",
+          "when": "editorLangId == python",
+          "group": "1_modification"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Important",
+      "properties": {
+        "important.validateOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate imports when a Python file is saved."
+        },
+        "important.validateOnType": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate imports as you type and when the document is modified by formatters or other tools."
+        },
+        "important.styleGuide": {
+          "type": "string",
+          "default": "google",
+          "enum": [
+            "google"
+          ],
+          "enumDescriptions": [
+            "Google Python Style Guide"
+          ],
+          "description": "The style guide to use for import validation."
+        },
+        "important.sortMethod": {
+          "type": "string",
+          "default": "native",
+          "enum": [
+            "native",
+            "isort"
+          ],
+          "enumDescriptions": [
+            "Use built-in import sorter (Google style)",
+            "Use isort with Google profile"
+          ],
+          "description": "Method to use for sorting imports."
+        },
+        "important.isortPath": {
+          "type": "string",
+          "default": "isort",
+          "description": "Path to the isort executable."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run esbuild-base -- --minify",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "compile": "npm run esbuild-base -- --sourcemap",
+    "watch": "npm run esbuild-base -- --sourcemap --watch",
+    "compile:tsc": "tsc -p ./",
+    "pretest": "npm run compile:tsc",
+    "test": "node ./dist/test/runTest.js",
+    "lint": "eslint src --ext ts",
+    "build:runtime": "./scripts/download-python-standalone.sh",
+    "build:runtime:linux": "./scripts/download-python-standalone.sh linux",
+    "build:runtime:darwin": "./scripts/download-python-standalone.sh darwin",
+    "build:runtime:win": "./scripts/download-python-standalone.sh win",
+    "clean:runtime": "rm -rf python-runtime/linux python-runtime/darwin python-runtime/win .python-downloads",
+    "package": "npm run compile && mkdir -p package && vsce package --no-dependencies -o package/",
+    "package:full": "npm run build:runtime && npm run package"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^8.54.0",
+    "@typescript-eslint/parser": "^8.54.0",
+    "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
+    "esbuild": "^0.27.2",
+    "eslint": "^9.39.2",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0"
+  }
+}
