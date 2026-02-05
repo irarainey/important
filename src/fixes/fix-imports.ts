@@ -6,12 +6,12 @@ import { sortImportsInDocument } from './sort-imports';
 /**
  * Fixes all import issues in the current document.
  * 
- * @returns The number of issues fixed
+ * @returns Number > 0 if any fixes were applied, 0 if nothing to fix
  */
 export async function fixAllImports(editor: vscode.TextEditor): Promise<number> {
     const document = editor.document;
     const issues = validateImports(document);
-    let fixCount = 0;
+    let madeChanges = false;
 
     // First: Apply symbol reference updates for import-modules-not-symbols
     // This must happen before we modify the imports
@@ -67,7 +67,7 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         }
 
         await vscode.workspace.applyEdit(edit);
-        fixCount += symbolIssues.length;
+        madeChanges = true;
 
         // Wait for edit to be applied before sorting
         await new Promise(resolve => setTimeout(resolve, 100));
@@ -85,8 +85,8 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         if (!sorted) {
             break; // No changes made, imports are sorted
         }
-        fixCount++;
+        madeChanges = true;
     }
 
-    return fixCount;
+    return madeChanges ? 1 : 0;
 }

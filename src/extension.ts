@@ -46,16 +46,14 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            const fixedCount = await fixAllImports(editor);
+            const changesMade = await fixAllImports(editor);
 
             // Revalidate after fixes to update diagnostics
             await new Promise(resolve => setTimeout(resolve, 50));
             validateDocument(editor.document);
 
-            if (fixedCount > 0) {
-                vscode.window.showInformationMessage(`Fixed ${fixedCount} import issue(s).`);
-            } else {
-                vscode.window.showInformationMessage('No fixable import issues found.');
+            if (changesMade === 0) {
+                vscode.window.showInformationMessage('No import issues to fix.');
             }
         })
     );
