@@ -112,18 +112,14 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Track document versions to detect when content changes after edits/undo/redo
-    const documentVersions = new Map<string, number>();
+    // Always listen to document changes - this is the most reliable way to catch
+    // all changes including undo/redo, formatter changes, and typing
     context.subscriptions.push(
-        vscode.window.onDidChangeTextEditorSelection(event => {
-            if (event.textEditor.document.languageId === 'python') {
-                const uri = event.textEditor.document.uri.toString();
-                const currentVersion = event.textEditor.document.version;
-                const lastVersion = documentVersions.get(uri);
-
-                if (lastVersion !== currentVersion) {
-                    documentVersions.set(uri, currentVersion);
-                    scheduleValidation(event.textEditor.document);
+        vscode.workspace.onDidChangeTextDocument(event => {
+            if (event.document.languageId === 'python' && event.contentChanges.length > 0) {
+                const config = getConfig();
+                if (config.validateOnType) {
+                    scheduleValidation(event.document);
                 }
             }
         })
@@ -188,8 +184,8 @@ function getConfig(): ImportantConfig {
 /** Pending validation timers keyed by document URI */
 const pendingValidations = new Map<string, NodeJS.Timeout>();
 
-/** Debounce delay for validation (ms) */
-const VALIDATION_DELAY = 150;
+/** Debounce delay for validation (ms) - kept short for responsive feedback */
+const VALIDATION_DELAY = 50;
 
 /**
  * Registers event handlers that depend on configuration settings.
@@ -201,17 +197,6 @@ function registerConfigDependentHandlers(): void {
     configDependentDisposables = [];
 
     const config = getConfig();
-
-    // Validate on document change - covers typing, formatting, and other modifications
-    if (config.validateOnType) {
-        configDependentDisposables.push(
-            vscode.workspace.onDidChangeTextDocument(event => {
-                if (event.document.languageId === 'python') {
-                    scheduleValidation(event.document);
-                }
-            })
-        );
-    }
 
     // Validate on save (if enabled)
     if (config.validateOnSave) {

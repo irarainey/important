@@ -5,7 +5,8 @@ Helper functions with mixed import issues.
 # fmt: off
 
 # ⚠️ VIOLATION: Multiple imports + unused
-import string, re
+import string
+import re
 import textwrap
 
 # ✅ CORRECT: Single imports in right order

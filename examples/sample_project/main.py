@@ -22,8 +22,8 @@ import tempfile
 from os.path import *
 
 # ⚠️ VIOLATION: Import symbols, not modules
-# Should be: from sample_project import models, then use models.User, models.Config
-from sample_project.models import User, Config
+# Should be: from import models with absolute path, then use models.User, models.Config
+from models import User, Config
 
 # ✅ CORRECT: Standard import
 import logging

@@ -32,13 +32,9 @@ export class ImportCodeActionProvider implements vscode.CodeActionProvider {
         context: vscode.CodeActionContext,
         _token: vscode.CancellationToken
     ): vscode.CodeAction[] | undefined {
-        // Get cached issues for this document, or validate fresh if cache is empty
-        let issues = this.issueCache.get(document.uri.toString());
-        if (!issues || issues.length === 0) {
-            // Cache miss - validate on demand
-            issues = validateImports(document);
-            this.issueCache.set(document.uri.toString(), issues);
-        }
+        // Always validate fresh to catch undo/redo changes that may not have updated cache yet
+        const issues = validateImports(document);
+        this.issueCache.set(document.uri.toString(), issues);
 
         // Check if any issues overlap with the current selection or are in context diagnostics
         const hasRelevantIssues = issues.some(issue =>
