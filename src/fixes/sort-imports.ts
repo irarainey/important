@@ -5,8 +5,34 @@ import { getImportCategory } from '../validation/import-validator';
 import { escapeRegex } from '../utils/text-utils';
 
 /**
+ * Checks if a name is used anywhere in the document outside import lines.
+ */
+function isNameUsed(documentText: string, document: vscode.TextDocument, name: string, importLines: Set<number>): boolean {
+    const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
+    let match;
+    while ((match = pattern.exec(documentText)) !== null) {
+        const pos = document.positionAt(match.index);
+        // Skip if on an import line
+        if (importLines.has(pos.line)) continue;
+        // Skip if in a comment
+        const lineText = document.lineAt(pos.line).text;
+        const beforeMatch = lineText.substring(0, pos.character);
+        if (beforeMatch.includes('#')) continue;
+        return true;
+    }
+    return false;
+}
+
+interface NormalizedImport {
+    module: string;
+    type: 'import' | 'from';
+    names: string[];
+    category: ImportCategory;
+}
+
+/**
  * Sorts all imports in a document according to Google style.
- * Expands multi-imports, removes unused imports, and groups by category.
+ * Expands multi-imports, removes unused, groups by category, sorts alphabetically.
  */
 export async function sortImportsInDocument(document: vscode.TextDocument): Promise<boolean> {
     const imports = parseImports(document);
@@ -16,84 +42,83 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
 
     const documentText = document.getText();
 
-    // Helper to check if a name is used in the document
-    const isNameUsed = (name: string, importLine: number): boolean => {
-        const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
-        let match;
-        while ((match = pattern.exec(documentText)) !== null) {
-            const pos = document.positionAt(match.index);
-            // Skip if on the import line itself
-            if (pos.line === importLine) continue;
-            // Skip if in a comment
-            const lineText = document.lineAt(pos.line).text;
-            const beforeMatch = lineText.substring(0, pos.character);
-            if (beforeMatch.includes('#')) continue;
-            return true;
+    // Collect all import line numbers for usage checking
+    const importLineSet = new Set<number>();
+    for (const imp of imports) {
+        const lineCount = imp.text.split('\n').length;
+        for (let i = 0; i < lineCount; i++) {
+            importLineSet.add(imp.line + i);
         }
-        return false;
-    };
+    }
 
-    // Expand multi-imports into individual imports, filtering out unused ones
-    const expandedImports: { module: string; type: 'import' | 'from'; names: string[]; category: ImportCategory; originalLine: number }[] = [];
+    // Find the contiguous import block range
+    const importLines = imports.map(i => i.line);
+    const firstImportLine = Math.min(...importLines);
+    let lastImportLine = firstImportLine;
+    for (const imp of imports) {
+        const endLine = imp.line + (imp.text.split('\n').length - 1);
+        if (endLine > lastImportLine) {
+            lastImportLine = endLine;
+        }
+    }
+
+    // Normalize imports: expand multi-imports, filter unused
+    const normalized: NormalizedImport[] = [];
 
     for (const imp of imports) {
         const category = getImportCategory(imp);
 
         if (imp.type === 'import') {
+            // Expand 'import os, sys' into separate imports
             for (const name of imp.names) {
-                // Check if this import is used
-                if (isNameUsed(name, imp.line)) {
-                    expandedImports.push({
+                if (isNameUsed(documentText, document, name, importLineSet)) {
+                    normalized.push({
                         module: name,
                         type: 'import',
                         names: [name],
                         category,
-                        originalLine: imp.line,
                     });
                 }
             }
         } else if (imp.names.includes('*')) {
-            // Keep wildcard imports as-is (can't determine usage)
-            expandedImports.push({
+            // Keep wildcard imports as-is
+            normalized.push({
                 module: imp.module,
-                type: imp.type,
-                names: [...imp.names],
+                type: 'from',
+                names: ['*'],
                 category,
-                originalLine: imp.line,
             });
         } else {
-            // For 'from X import Y, Z' - filter to only used names
-            const usedNames = imp.names.filter(name => isNameUsed(name, imp.line));
+            // Filter to only used names
+            const usedNames = imp.names.filter(name =>
+                isNameUsed(documentText, document, name, importLineSet)
+            );
             if (usedNames.length > 0) {
-                expandedImports.push({
+                normalized.push({
                     module: imp.module,
-                    type: imp.type,
+                    type: 'from',
                     names: usedNames,
                     category,
-                    originalLine: imp.line,
                 });
             }
         }
     }
 
-    // Group imports by category
-    const groups: Record<ImportCategory, typeof expandedImports> = {
+    // Group by category
+    const groups: Record<ImportCategory, NormalizedImport[]> = {
         'stdlib': [],
         'third-party': [],
         'local': [],
     };
 
-    for (const imp of expandedImports) {
+    for (const imp of normalized) {
         groups[imp.category].push(imp);
     }
 
     // Sort alphabetically within each group
-    // Plain imports before from imports, then by module name
-    const sortKey = (imp: typeof expandedImports[0]): string => {
-        if (imp.type === 'from') {
-            return `1.${imp.module}.${imp.names[0] ?? ''}`;
-        }
-        return `0.${imp.module}`;
+    const sortKey = (imp: NormalizedImport): string => {
+        const prefix = imp.type === 'import' ? '0' : '1';
+        return `${prefix}.${imp.module.toLowerCase()}`;
     };
 
     for (const category of Object.keys(groups) as ImportCategory[]) {
@@ -120,21 +145,15 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
 
     const sortedImportsText = sortedBlocks.join('\n\n');
 
-    // Find the range covering all import lines
-    const importLines = imports.map(i => i.line);
-    const firstImportLine = Math.min(...importLines);
-
-    let lastImportLine = firstImportLine;
-    for (const imp of imports) {
-        const endLine = imp.line + (imp.text.split('\n').length - 1);
-        if (endLine > lastImportLine) {
-            lastImportLine = endLine;
-        }
-    }
-
+    // Check if already sorted (no change needed)
     const startPos = new vscode.Position(firstImportLine, 0);
     const endPos = new vscode.Position(lastImportLine, document.lineAt(lastImportLine).text.length);
     const importRange = new vscode.Range(startPos, endPos);
+    const currentText = document.getText(importRange);
+
+    if (currentText === sortedImportsText) {
+        return false; // Already sorted
+    }
 
     const edit = new vscode.WorkspaceEdit();
     edit.replace(document.uri, importRange, sortedImportsText);
