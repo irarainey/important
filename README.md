@@ -1,8 +1,8 @@
+# Important
+
 <p align="center">
   <img src="resources/images/logo.png" alt="Important" width="256" />
 </p>
-
-# Important
 
 A Visual Studio Code extension that validates and formats Python import statements according to the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#313-imports-formatting).
 
@@ -194,14 +194,6 @@ The sample project includes intentional import violations for testing:
 - VS Code 1.85.0 or higher
 - Python files (`.py`) to validate
 
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/my-feature`)
-3. Commit your changes (`git commit -am 'Add my feature'`)
-4. Push to the branch (`git push origin feature/my-feature`)
-5. Open a Pull Request
-
 ## License
 
 See [LICENSE.md](LICENSE.md) for details.
@@ -209,5 +201,4 @@ See [LICENSE.md](LICENSE.md) for details.
 ## Links
 
 - [Repository](https://github.com/irarainey/important)
-- [Issues](https://github.com/irarainey/important/issues)
 - [Google Python Style Guide - Imports](https://google.github.io/styleguide/pyguide.html#313-imports-formatting)
