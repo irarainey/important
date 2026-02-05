@@ -94,7 +94,6 @@
     "watch": "npm run esbuild-base -- --sourcemap --watch",
     "compile:tsc": "tsc -p ./",
     "pretest": "npm run compile:tsc",
-    "test": "node ./dist/test/runTest.js",
     "lint": "eslint src --ext ts",
     "package": "npm run compile && mkdir -p package && vsce package --no-dependencies -o package/"
   },
