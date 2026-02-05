@@ -4,7 +4,7 @@
   <img src="resources/images/logo.png" alt="Important" width="256" />
 </p>
 
-A Visual Studio Code extension that validates and formats Python import statements according to the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#313-imports-formatting).
+A Visual Studio Code extension that validates and formats Python import statements according to the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#313-imports-formatting). It provides real-time diagnostics as you type, highlights unused imports, and can automatically fix all issues including wildcard imports, incorrect ordering, and symbol imports. The extension scans your code to understand which imports are actually used and applies intelligent fixes that update both the import statements and all related symbol references throughout your file.
 
 ## Features
 
@@ -29,6 +29,36 @@ A Visual Studio Code extension that validates and formats Python import statemen
 | Duplicate imports          | Multiple identical imports are merged                         | ✅       |
 | Correct ordering           | stdlib → third-party → local                                  | ✅       |
 | Alphabetical order         | Within each group                                             | ✅       |
+
+### Example
+
+Before running "Fix Imports":
+
+```python
+import requests
+import os, sys
+from os.path import *
+from models.user import User
+import json
+
+print(abspath("."))
+user = User()
+```
+
+After:
+
+```python
+import json
+import os
+import sys
+
+import requests
+
+from models import user
+
+print(os.path.abspath("."))
+user = user.User()
+```
 
 ### Commands
 
