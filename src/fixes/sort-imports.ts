@@ -111,7 +111,29 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
         'local': [],
     };
 
+    // Deduplicate imports (merge from imports for same module, skip duplicate imports)
+    const seenImports = new Map<string, NormalizedImport>();
+
     for (const imp of normalized) {
+        const key = `${imp.type}:${imp.module}`;
+
+        if (seenImports.has(key)) {
+            const existing = seenImports.get(key)!;
+            if (imp.type === 'from' && !imp.names.includes('*') && !existing.names.includes('*')) {
+                // Merge names for from imports
+                for (const name of imp.names) {
+                    if (!existing.names.includes(name)) {
+                        existing.names.push(name);
+                    }
+                }
+            }
+            // For 'import' type, duplicate is just ignored
+        } else {
+            seenImports.set(key, imp);
+        }
+    }
+
+    for (const imp of seenImports.values()) {
         groups[imp.category].push(imp);
     }
 

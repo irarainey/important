@@ -19,15 +19,16 @@ A Visual Studio Code extension that validates and formats Python import statemen
 
 ### Validation Rules
 
-| Rule                       | Description                                                   |
-| -------------------------- | ------------------------------------------------------------- |
-| No relative imports        | `from .module import x` → `from package.module import x`      |
-| No wildcard imports        | `from os import *` is not allowed                             |
-| One import per line        | `import os, sys` → separate statements                        |
-| Import modules not symbols | `from pkg.mod import Cls` → `from pkg import mod` + `mod.Cls` |
-| Unused imports             | Imports not referenced in code are flagged                    |
-| Correct ordering           | stdlib → third-party → local                                  |
-| Alphabetical order         | Within each group                                             |
+| Rule                       | Description                                                   | Auto-Fix |
+| -------------------------- | ------------------------------------------------------------- | -------- |
+| No relative imports        | `from .module import x` → `from package.module import x`      | ✅       |
+| No wildcard imports        | `from os.path import *` → `import os` + `os.path.func()`      | ✅       |
+| One import per line        | `import os, sys` → separate statements                        | ✅       |
+| Import modules not symbols | `from pkg.mod import Cls` → `from pkg import mod` + `mod.Cls` | ✅       |
+| Unused imports             | Imports not referenced in code are removed                    | ✅       |
+| Duplicate imports          | Multiple identical imports are merged                         | ✅       |
+| Correct ordering           | stdlib → third-party → local                                  | ✅       |
+| Alphabetical order         | Within each group                                             | ✅       |
 
 ### Commands
 
@@ -87,6 +88,29 @@ The "Fix Imports" command includes automatic import sorting that:
 - Sorts alphabetically within each group
 - Splits multi-imports (`import os, sys`) into separate lines
 - Removes unused imports
+- Merges duplicate imports
+- Fixes wildcard imports by converting to qualified module access
+
+### Wildcard Import Fixing
+
+Wildcard imports (`from X import *`) are automatically fixed for supported stdlib modules:
+
+- `os`, `os.path`, `sys`
+- `re`, `json`, `collections`
+- `typing`, `pathlib`, `datetime`
+- `math`, `functools`, `itertools`
+
+The fix converts the import and updates all symbol usages:
+
+```python
+# Before
+from os.path import *
+print(abspath("."))
+
+# After
+import os
+print(os.path.abspath("."))
+```
 
 ## Building
 
@@ -148,6 +172,7 @@ important/
 │   │   ├── fix-imports.ts      # Fix all imports command
 │   │   └── sort-imports.ts     # Import sorting
 │   └── utils/                  # Utility modules
+│       ├── module-symbols.ts   # Known symbols for wildcard import fixing
 │       ├── stdlib-modules.ts   # Python standard library module list
 │       └── text-utils.ts       # Text/regex utilities
 ├── python-runtime/             # Python runtimes (for future isort integration)

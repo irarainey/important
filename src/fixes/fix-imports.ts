@@ -29,6 +29,9 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
                 continue;
             }
 
+            // Use the top-level module for simplicity (e.g., os instead of os.path)
+            const topLevelModule = moduleName.split('.')[0];
+
             const knownSymbols = getModuleSymbols(moduleName);
             const usedSymbols: string[] = [];
 
@@ -67,16 +70,16 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
                         usedSymbols.push(symbol);
                     }
 
-                    // Replace symbol with qualified name
+                    // Replace symbol with qualified name (keep full path for clarity)
                     const matchEnd = document.positionAt(match.index + symbol.length);
                     const matchRange = new vscode.Range(matchStart, matchEnd);
                     edit.replace(document.uri, matchRange, `${moduleName}.${symbol}`);
                 }
             }
 
-            // Replace the wildcard import with module import
-            // from os.path import * -> import os.path
-            edit.replace(document.uri, issue.range, `import ${moduleName}`);
+            // Replace the wildcard import with simple top-level module import
+            // from os.path import * -> import os
+            edit.replace(document.uri, issue.range, `import ${topLevelModule}`);
         }
 
         await vscode.workspace.applyEdit(edit);
