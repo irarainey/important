@@ -17,22 +17,6 @@
             "env": {
                 "NODE_NO_WARNINGS": "1"
             }
-        },
-        {
-            "name": "Run Extension (No Build)",
-            "type": "extensionHost",
-            "request": "launch",
-            "args": [
-                "--extensionDevelopmentPath=${workspaceFolder}",
-                "${workspaceFolder}/examples/sample_project"
-            ],
-            "outFiles": [
-                "${workspaceFolder}/dist/**/*.js"
-            ],
-            "env": {
-                "NODE_NO_WARNINGS": "1"
-            },
-            "debugWebviews": false
         }
     ]
 }
