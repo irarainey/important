@@ -27,8 +27,14 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
     const documentText = document.getText();
 
     for (const issue of sortedIssues) {
-        if (issue.suggestedFix) {
-            edit.replace(document.uri, issue.range, issue.suggestedFix);
+        if (issue.suggestedFix !== undefined) {
+            if (issue.suggestedFix === '') {
+                // Empty fix means delete the entire line (including newline)
+                const lineRange = document.lineAt(issue.import.line).rangeIncludingLineBreak;
+                edit.delete(document.uri, lineRange);
+            } else {
+                edit.replace(document.uri, issue.range, issue.suggestedFix);
+            }
 
             // For import-modules-not-symbols, also update all symbol references
             if (issue.code === 'import-modules-not-symbols') {

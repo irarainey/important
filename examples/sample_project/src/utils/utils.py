@@ -3,11 +3,10 @@ Utilities module demonstrating relative import and symbol import issues.
 """
 
 # ⚠️ VIOLATION: Relative import
-from .main import main
+from main import main
 
 # ⚠️ VIOLATION: Import symbols, not modules
-# Should be: from sample_project import models, then use models.User
-from sample_project.models import User, create_user
+from models.sample_models import User, create_user
 
 # ⚠️ VIOLATION: Wrong alphabetical order
 import json
