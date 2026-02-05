@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import * as fs from 'fs';
 import { validateImports, issuesToDiagnostics } from './import-validator';
 import { ImportCodeActionProvider, fixAllImports } from './code-action-provider';
 import { ImportHoverProvider } from './hover-provider';
@@ -51,6 +50,11 @@ export function activate(context: vscode.ExtensionContext): void {
             }
 
             const fixedCount = await fixAllImports(editor);
+
+            // Revalidate after fixes to update diagnostics
+            await new Promise(resolve => setTimeout(resolve, 50));
+            validateDocument(editor.document);
+
             if (fixedCount > 0) {
                 vscode.window.showInformationMessage(`Fixed ${fixedCount} import issue(s).`);
             } else {
@@ -79,57 +83,48 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Sort imports using isort
-    context.subscriptions.push(
-        vscode.commands.registerCommand('important.sortImportsWithIsort', async () => {
-            const editor = vscode.window.activeTextEditor;
-            if (!editor || editor.document.languageId !== 'python') {
-                vscode.window.showWarningMessage('No Python file is currently open.');
-                return;
-            }
-
-            // Save the document first
-            await editor.document.save();
-
-            const config = vscode.workspace.getConfiguration('important');
-            let isortPath = config.get<string>('isortPath', 'isort');
-
-            // Try to use bundled isort if not explicitly configured
-            if (isortPath === 'isort') {
-                const bundledPath = getBundledIsortPath(context.extensionPath);
-                if (bundledPath) {
-                    isortPath = bundledPath;
-                }
-            }
-
-            const filePath = editor.document.uri.fsPath;
-
-            const { exec } = await import('child_process');
-            const { promisify } = await import('util');
-            const execAsync = promisify(exec);
-
-            try {
-                // Run isort with Google profile
-                await execAsync(`"${isortPath}" --profile google "${filePath}"`);
-                vscode.window.showInformationMessage('Imports sorted with isort.');
-            } catch (error) {
-                const errorMsg = error instanceof Error ? error.message : String(error);
-                if (errorMsg.includes('not found') || errorMsg.includes('command not found')) {
-                    vscode.window.showErrorMessage(
-                        'isort not found. Install it with: pip install isort'
-                    );
-                } else {
-                    vscode.window.showErrorMessage(`isort failed: ${errorMsg}`);
-                }
-            }
-        })
-    );
-
     // Validate on document open (always active)
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(doc => {
             if (doc.languageId === 'python') {
                 validateDocument(doc);
+            }
+        })
+    );
+
+    // Revalidate when switching to a Python file (catches missed updates)
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(editor => {
+            if (editor && editor.document.languageId === 'python') {
+                validateDocument(editor.document);
+            }
+        })
+    );
+
+    // Revalidate when visible text editors change (catches workspace edit completions)
+    context.subscriptions.push(
+        vscode.window.onDidChangeVisibleTextEditors(editors => {
+            for (const editor of editors) {
+                if (editor.document.languageId === 'python') {
+                    scheduleValidation(editor.document);
+                }
+            }
+        })
+    );
+
+    // Track document versions to detect when content changes after edits/undo/redo
+    const documentVersions = new Map<string, number>();
+    context.subscriptions.push(
+        vscode.window.onDidChangeTextEditorSelection(event => {
+            if (event.textEditor.document.languageId === 'python') {
+                const uri = event.textEditor.document.uri.toString();
+                const currentVersion = event.textEditor.document.version;
+                const lastVersion = documentVersions.get(uri);
+
+                if (lastVersion !== currentVersion) {
+                    documentVersions.set(uri, currentVersion);
+                    scheduleValidation(event.textEditor.document);
+                }
             }
         })
     );
@@ -190,35 +185,11 @@ function getConfig(): ImportantConfig {
     };
 }
 
-/**
- * Gets the path to the bundled isort executable if it exists.
- */
-function getBundledIsortPath(extensionPath: string): string | undefined {
-    const platform = process.platform;
-    let isortRelativePath: string;
-
-    if (platform === 'win32') {
-        isortRelativePath = 'python-runtime/win/Scripts/isort.exe';
-    } else if (platform === 'darwin') {
-        isortRelativePath = 'python-runtime/darwin/bin/isort';
-    } else {
-        isortRelativePath = 'python-runtime/linux/bin/isort';
-    }
-
-    const isortPath = vscode.Uri.joinPath(vscode.Uri.file(extensionPath), isortRelativePath).fsPath;
-
-    if (fs.existsSync(isortPath)) {
-        return isortPath;
-    }
-
-    return undefined;
-}
-
 /** Pending validation timers keyed by document URI */
 const pendingValidations = new Map<string, NodeJS.Timeout>();
 
 /** Debounce delay for validation (ms) */
-const VALIDATION_DELAY = 300;
+const VALIDATION_DELAY = 150;
 
 /**
  * Registers event handlers that depend on configuration settings.
@@ -267,14 +238,14 @@ function scheduleValidation(document: vscode.TextDocument): void {
     }
 
     // Schedule new validation
-    const timeout = setTimeout(() => {
+    const timeout = setTimeout(async () => {
         pendingValidations.delete(uri);
-        // Re-fetch the document in case it changed
-        const currentDoc = vscode.workspace.textDocuments.find(
-            d => d.uri.toString() === uri
-        );
-        if (currentDoc) {
+        // Use openTextDocument to get a fresh reference to the document
+        try {
+            const currentDoc = await vscode.workspace.openTextDocument(document.uri);
             validateDocument(currentDoc);
+        } catch {
+            // Document may have been closed
         }
     }, VALIDATION_DELAY);
 
@@ -284,7 +255,7 @@ function scheduleValidation(document: vscode.TextDocument): void {
 /**
  * Validates a document and updates diagnostics.
  */
-function validateDocument(document: vscode.TextDocument): void {
+export function validateDocument(document: vscode.TextDocument): void {
     if (document.languageId !== 'python') {
         return;
     }

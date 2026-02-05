@@ -42,17 +42,12 @@
     "commands": [
       {
         "command": "important.fixImports",
-        "title": "Fix Imports in This File",
+        "title": "Fix Imports in This File with Important",
         "category": "Important"
       },
       {
         "command": "important.validateImports",
-        "title": "Validate Imports in This File",
-        "category": "Important"
-      },
-      {
-        "command": "important.sortImportsWithIsort",
-        "title": "Sort Imports with isort",
+        "title": "Validate Imports in This File with Important",
         "category": "Important"
       }
     ],
@@ -88,24 +83,6 @@
             "Google Python Style Guide"
           ],
           "description": "The style guide to use for import validation."
-        },
-        "important.sortMethod": {
-          "type": "string",
-          "default": "native",
-          "enum": [
-            "native",
-            "isort"
-          ],
-          "enumDescriptions": [
-            "Use built-in import sorter (Google style)",
-            "Use isort with Google profile"
-          ],
-          "description": "Method to use for sorting imports."
-        },
-        "important.isortPath": {
-          "type": "string",
-          "default": "isort",
-          "description": "Path to the isort executable."
         }
       }
     }
@@ -119,13 +96,7 @@
     "pretest": "npm run compile:tsc",
     "test": "node ./dist/test/runTest.js",
     "lint": "eslint src --ext ts",
-    "build:runtime": "./scripts/download-python-standalone.sh",
-    "build:runtime:linux": "./scripts/download-python-standalone.sh linux",
-    "build:runtime:darwin": "./scripts/download-python-standalone.sh darwin",
-    "build:runtime:win": "./scripts/download-python-standalone.sh win",
-    "clean:runtime": "rm -rf python-runtime/linux python-runtime/darwin python-runtime/win .python-downloads",
-    "package": "npm run compile && mkdir -p package && vsce package --no-dependencies -o package/",
-    "package:full": "npm run build:runtime && npm run package"
+    "package": "npm run compile && mkdir -p package && vsce package --no-dependencies -o package/"
   },
   "devDependencies": {
     "@types/node": "^25.2.0",
