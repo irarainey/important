@@ -36,29 +36,43 @@ export class ImportCodeActionProvider implements vscode.CodeActionProvider {
         const issues = validateImports(document);
         this.issueCache.set(document.uri.toString(), issues);
 
-        // Check if any issues overlap with the current selection or are in context diagnostics
-        const hasRelevantIssues = issues.some(issue =>
-            issue.range.intersection(range) !== undefined
-        ) || context.diagnostics.some(diagnostic =>
-            diagnostic.source === 'Important'
-        );
-
-        if (!hasRelevantIssues || issues.length === 0) {
+        // No issues means no code actions
+        if (issues.length === 0) {
             return undefined;
         }
 
-        // Provide a single "Fix All Imports" action
+        // Check if we're on a line with an issue for context-specific actions
+        const issueAtCursor = issues.find(issue =>
+            issue.range.intersection(range) !== undefined
+        );
+
+        const actions: vscode.CodeAction[] = [];
+
+        // If on a specific issue, provide a targeted fix (if available)
+        if (issueAtCursor?.suggestedFix !== undefined) {
+            const fixAction = new vscode.CodeAction(
+                `Fix: ${issueAtCursor.message.split('.')[0]}`,
+                vscode.CodeActionKind.QuickFix
+            );
+            fixAction.edit = new vscode.WorkspaceEdit();
+            fixAction.edit.replace(document.uri, issueAtCursor.range, issueAtCursor.suggestedFix);
+            fixAction.isPreferred = true;
+            actions.push(fixAction);
+        }
+
+        // Always provide "Fix All" action if there are any issues in the file
+        // (will fix what it can and leave unfixable issues alone)
         const fixAllAction = new vscode.CodeAction(
-            'Fix all import issues',
+            `Fix all import issues (${issues.length} issue${issues.length > 1 ? 's' : ''})`,
             vscode.CodeActionKind.QuickFix
         );
         fixAllAction.command = {
             command: 'important.fixImports',
             title: 'Fix all import issues',
         };
-        fixAllAction.isPreferred = true;
+        actions.push(fixAllAction);
 
-        return [fixAllAction];
+        return actions.length > 0 ? actions : undefined;
     }
 }
 
