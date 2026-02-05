@@ -29,7 +29,7 @@ export class ImportCodeActionProvider implements vscode.CodeActionProvider {
     public provideCodeActions(
         document: vscode.TextDocument,
         range: vscode.Range | vscode.Selection,
-        context: vscode.CodeActionContext,
+        _context: vscode.CodeActionContext,
         _token: vscode.CancellationToken
     ): vscode.CodeAction[] | undefined {
         // Always validate fresh to catch undo/redo changes that may not have updated cache yet

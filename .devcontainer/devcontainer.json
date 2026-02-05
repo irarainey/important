@@ -30,6 +30,6 @@
       }
     }
   },
-  "postCreateCommand": "npm install && ./scripts/download-python-standalone.sh linux",
+  "postCreateCommand": "npm install && ./scripts/download-python-standalone.sh",
   "remoteUser": "node"
 }
