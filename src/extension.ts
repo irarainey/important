@@ -1,7 +1,9 @@
 import * as vscode from 'vscode';
-import { validateImports, issuesToDiagnostics } from './import-validator';
-import { ImportCodeActionProvider, fixAllImports } from './code-action-provider';
-import { ImportHoverProvider } from './hover-provider';
+import { validateImports } from './validation/import-validator';
+import { issuesToDiagnostics } from './validation/diagnostics';
+import { ImportCodeActionProvider } from './providers/code-action-provider';
+import { ImportHoverProvider } from './providers/hover-provider';
+import { fixAllImports } from './fixes/fix-imports';
 import type { ImportIssue, ImportantConfig } from './types';
 
 /** Diagnostic collection for import validation issues */

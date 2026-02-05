@@ -137,10 +137,19 @@ important/
 ├── src/
 │   ├── extension.ts            # Extension entry point & lifecycle
 │   ├── types.ts                # TypeScript type definitions
-│   ├── import-validator.ts     # Import parsing & validation logic
-│   ├── code-action-provider.ts # Quick fix code actions
-│   ├── hover-provider.ts       # Hover information for diagnostics
-│   └── stdlib-modules.ts       # Python standard library module list
+│   ├── providers/              # VS Code language providers
+│   │   ├── code-action-provider.ts  # Quick fix code actions
+│   │   └── hover-provider.ts        # Hover information for diagnostics
+│   ├── validation/             # Import validation logic
+│   │   ├── import-parser.ts    # Import statement parsing
+│   │   ├── import-validator.ts # Validation rules
+│   │   └── diagnostics.ts      # Diagnostic conversion
+│   ├── fixes/                  # Import fixing logic
+│   │   ├── fix-imports.ts      # Fix all imports command
+│   │   └── sort-imports.ts     # Import sorting
+│   └── utils/                  # Utility modules
+│       ├── stdlib-modules.ts   # Python standard library module list
+│       └── text-utils.ts       # Text/regex utilities
 ├── python-runtime/             # Bundled Python runtimes with isort
 │   ├── linux/                  # Linux x86_64 runtime
 │   ├── darwin/                 # macOS x86_64 runtime
