@@ -23,76 +23,42 @@ export function getImportCategory(importStmt: ImportStatement): ImportCategory {
 }
 
 /**
+ * Checks if a name is used anywhere in the document outside the given line.
+ */
+function isNameUsedInDocument(document: vscode.TextDocument, name: string, excludeLine: number): boolean {
+    const documentText = document.getText();
+    const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
+
+    let match;
+    while ((match = pattern.exec(documentText)) !== null) {
+        const pos = document.positionAt(match.index);
+
+        // Skip if this is on the excluded line (import line)
+        if (pos.line === excludeLine) {
+            continue;
+        }
+
+        // Skip if in a comment
+        const lineText = document.lineAt(pos.line).text;
+        const beforeMatch = lineText.substring(0, pos.character);
+        if (beforeMatch.includes('#')) {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
+}
+
+/**
  * Finds names from an import statement that are not used in the document.
  */
 function findUnusedNames(document: vscode.TextDocument, imp: ImportStatement): string[] {
-    const documentText = document.getText();
-    const unusedNames: string[] = [];
-
-    // For 'import X' style, check if X is used (as X.something or just X)
-    if (imp.type === 'import') {
-        for (const name of imp.names) {
-            // Create regex to find usage of the module name
-            const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
-            let usageCount = 0;
-
-            let match;
-            while ((match = pattern.exec(documentText)) !== null) {
-                const pos = document.positionAt(match.index);
-
-                // Skip if this is on the import line itself
-                if (pos.line === imp.line) {
-                    continue;
-                }
-
-                // Skip if in a comment
-                const lineText = document.lineAt(pos.line).text;
-                const beforeMatch = lineText.substring(0, pos.character);
-                if (beforeMatch.includes('#')) {
-                    continue;
-                }
-
-                usageCount++;
-            }
-
-            if (usageCount === 0) {
-                unusedNames.push(name);
-            }
-        }
-    } else {
-        // For 'from X import Y' style, check if Y is used
-        for (const name of imp.names) {
-            if (name === '*') continue;
-
-            const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
-            let usageCount = 0;
-
-            let match;
-            while ((match = pattern.exec(documentText)) !== null) {
-                const pos = document.positionAt(match.index);
-
-                // Skip if this is on the import line itself
-                if (pos.line === imp.line) {
-                    continue;
-                }
-
-                // Skip if in a comment
-                const lineText = document.lineAt(pos.line).text;
-                const beforeMatch = lineText.substring(0, pos.character);
-                if (beforeMatch.includes('#')) {
-                    continue;
-                }
-
-                usageCount++;
-            }
-
-            if (usageCount === 0) {
-                unusedNames.push(name);
-            }
-        }
-    }
-
-    return unusedNames;
+    return imp.names.filter(name => {
+        if (name === '*') return false;
+        return !isNameUsedInDocument(document, name, imp.line);
+    });
 }
 
 /**

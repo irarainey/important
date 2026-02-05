@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { ImportCategory } from '../types';
 import { parseImports } from '../validation/import-parser';
 import { getImportCategory } from '../validation/import-validator';
+import { escapeRegex } from '../utils/text-utils';
 
 /**
  * Sorts all imports in a document according to Google style.
@@ -17,7 +18,7 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
 
     // Helper to check if a name is used in the document
     const isNameUsed = (name: string, importLine: number): boolean => {
-        const pattern = new RegExp(`\\b${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+        const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
         let match;
         while ((match = pattern.exec(documentText)) !== null) {
             const pos = document.positionAt(match.index);

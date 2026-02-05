@@ -1,5 +1,4 @@
 import * as vscode from 'vscode';
-import type { ImportIssue } from '../types';
 import { validateImports } from '../validation/import-validator';
 
 /**
@@ -10,31 +9,13 @@ export class ImportCodeActionProvider implements vscode.CodeActionProvider {
         vscode.CodeActionKind.QuickFix,
     ];
 
-    private readonly issueCache = new Map<string, ImportIssue[]>();
-
-    /**
-     * Updates the cached issues for a document.
-     */
-    public updateIssues(uri: vscode.Uri, issues: ImportIssue[]): void {
-        this.issueCache.set(uri.toString(), issues);
-    }
-
-    /**
-     * Clears cached issues for a document.
-     */
-    public clearIssues(uri: vscode.Uri): void {
-        this.issueCache.delete(uri.toString());
-    }
-
     public provideCodeActions(
         document: vscode.TextDocument,
         range: vscode.Range | vscode.Selection,
         _context: vscode.CodeActionContext,
         _token: vscode.CancellationToken
     ): vscode.CodeAction[] | undefined {
-        // Always validate fresh to catch undo/redo changes that may not have updated cache yet
         const issues = validateImports(document);
-        this.issueCache.set(document.uri.toString(), issues);
 
         // No issues means no code actions
         if (issues.length === 0) {

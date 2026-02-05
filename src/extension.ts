@@ -9,9 +9,6 @@ import type { ImportIssue, ImportantConfig } from './types';
 /** Diagnostic collection for import validation issues */
 let diagnosticCollection: vscode.DiagnosticCollection;
 
-/** Code action provider instance (shared for issue caching) */
-let codeActionProvider: ImportCodeActionProvider;
-
 /** Disposables for config-dependent event handlers that may need re-registration */
 let configDependentDisposables: vscode.Disposable[] = [];
 
@@ -23,22 +20,20 @@ export function activate(context: vscode.ExtensionContext): void {
     diagnosticCollection = vscode.languages.createDiagnosticCollection('important');
     context.subscriptions.push(diagnosticCollection);
 
-    // Create and register code action provider
-    codeActionProvider = new ImportCodeActionProvider();
+    // Register code action provider
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
             { language: 'python', scheme: 'file' },
-            codeActionProvider,
+            new ImportCodeActionProvider(),
             { providedCodeActionKinds: ImportCodeActionProvider.providedCodeActionKinds }
         )
     );
 
     // Register hover provider for additional issue information
-    const hoverProvider = new ImportHoverProvider(diagnosticCollection);
     context.subscriptions.push(
         vscode.languages.registerHoverProvider(
             { language: 'python', scheme: 'file' },
-            hoverProvider
+            new ImportHoverProvider(diagnosticCollection)
         )
     );
 
@@ -131,7 +126,6 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.workspace.onDidCloseTextDocument(doc => {
             diagnosticCollection.delete(doc.uri);
-            codeActionProvider.clearIssues(doc.uri);
         })
     );
 
@@ -251,6 +245,5 @@ export function validateDocument(document: vscode.TextDocument): void {
     const diagnostics = issuesToDiagnostics(issues);
 
     diagnosticCollection.set(document.uri, diagnostics);
-    codeActionProvider.updateIssues(document.uri, issues);
 }
 
