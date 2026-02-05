@@ -1,30 +1,32 @@
 # Python Runtime
 
-This directory was previously used for bundled Python runtimes. The extension now uses a **native TypeScript implementation** for all import validation and sorting - no Python required.
+This directory contains bundled Python runtimes with `isort` for cross-platform import sorting.
 
-## Current Status
+## Building Runtimes
 
-**Not currently used.** All import validation and sorting is done natively in TypeScript for better performance and simpler deployment.
+Use the npm script to download and set up Python runtimes for all platforms:
 
-The directory structure is preserved for potential future use if Python-based tools are added.
+```bash
+npm run build:runtime
+```
 
-## Historical Structure
+Or for specific platforms:
+
+```bash
+npm run build:runtime -- linux darwin
+```
+
+## Directory Structure
 
 ```
 python-runtime/
-├── win/           # Windows runtime
-│   └── ...
-├── linux/         # Linux runtime
-│   └── ...
-└── darwin/        # macOS runtime
-    └── ...
+├── linux/         # Linux x86_64 runtime
+├── darwin/        # macOS x86_64 runtime
+├── darwin-arm64/  # macOS ARM64 runtime
+└── win/           # Windows x86_64 runtime
 ```
 
-## Why Native TypeScript?
+## Current Status
 
-Using native TypeScript instead of bundled Python:
-
-- No runtime dependencies
-- Faster execution
-- Simpler deployment
-- Smaller extension size
+The extension currently uses **native TypeScript** for import validation.
+The Python runtimes are bundled for future `isort` integration.

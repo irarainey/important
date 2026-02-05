@@ -156,10 +156,11 @@ important/
 │   └── win/                    # Windows x86_64 runtime
 ├── examples/
 │   └── sample_project/         # Sample Python project for testing
-│       ├── main.py             # Multiple issues: multi-imports, order, unused
-│       ├── utils.py            # Relative imports, symbol imports
-│       ├── helpers.py          # Parent relative import, multiple imports
-│       └── models.py           # Clean file (no issues)
+│       └── src/
+│           ├── main.py             # Multiple issues: multi-imports, order, unused
+│           ├── helpers/helpers.py  # Parent relative import, multiple imports
+│           ├── models/models.py    # Clean file (no issues)
+│           └── utils/utils.py      # Relative imports, symbol imports
 ├── scripts/
 │   ├── download-python-standalone.sh  # Download Python runtimes
 │   └── build-python-runtime.sh        # Build runtime from local Python
