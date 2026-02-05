@@ -23,7 +23,11 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         for (const issue of symbolIssues) {
             const moduleParts = issue.import.module.split('.');
             const moduleName = moduleParts[moduleParts.length - 1];
+            const parentPackage = moduleParts.slice(0, -1).join('.');
             const importedSymbols = issue.import.names;
+
+            // Fix the import statement itself
+            edit.replace(document.uri, issue.range, `from ${parentPackage} import ${moduleName}`);
 
             for (const symbol of importedSymbols) {
                 const symbolRegex = new RegExp(`\\b${symbol}\\b`, 'g');
@@ -64,15 +68,19 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
 
         await vscode.workspace.applyEdit(edit);
         fixCount += symbolIssues.length;
+
+        // Wait for edit to be applied before sorting
+        await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     // Second: Sort imports (also removes unused, expands multi-imports, fixes order)
-    // Iterate until stable (max 3 iterations for safety)
-    for (let i = 0; i < 3; i++) {
-        await new Promise(resolve => setTimeout(resolve, 50));
+    // Iterate until stable (max 5 iterations for safety)
+    for (let i = 0; i < 5; i++) {
+        await new Promise(resolve => setTimeout(resolve, 100));
 
-        const currentDoc = await vscode.workspace.openTextDocument(document.uri);
-        const sorted = await sortImportsInDocument(currentDoc);
+        // Get fresh document reference to ensure we have the latest content
+        const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
+        const sorted = await sortImportsInDocument(freshDoc);
 
         if (!sorted) {
             break; // No changes made, imports are sorted

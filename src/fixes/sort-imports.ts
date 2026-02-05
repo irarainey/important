@@ -115,10 +115,9 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
         groups[imp.category].push(imp);
     }
 
-    // Sort alphabetically within each group
+    // Sort alphabetically within each group (pure alphabetical by module name)
     const sortKey = (imp: NormalizedImport): string => {
-        const prefix = imp.type === 'import' ? '0' : '1';
-        return `${prefix}.${imp.module.toLowerCase()}`;
+        return imp.module.toLowerCase();
     };
 
     for (const category of Object.keys(groups) as ImportCategory[]) {

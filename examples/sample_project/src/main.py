@@ -48,8 +48,8 @@ def main() -> None:
     logger.info("Absolute path: %s", abspath("."))
 
     # ⚠️ Using imported classes directly (violation of "import modules, not symbols")
-    user = sample_models.User(id=1, name="Alice", email="alice@example.com")
-    config = sample_models.Config(debug=True, log_level="DEBUG")
+    user = User(id=1, name="Alice", email="alice@example.com")
+    config = Config(debug=True, log_level="DEBUG")
     logger.info("User: %s", user)
     logger.info("Config: %s", config)
 
