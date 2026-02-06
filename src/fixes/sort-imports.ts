@@ -71,7 +71,7 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
     const normalized: NormalizedImport[] = [];
 
     for (const imp of imports) {
-        const category = getImportCategory(imp);
+        const category = getImportCategory(imp, document.uri);
 
         if (imp.type === 'import') {
             // Expand 'import os, sys' into separate imports

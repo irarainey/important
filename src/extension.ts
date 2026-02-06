@@ -4,7 +4,7 @@ import { issuesToDiagnostics } from './validation/diagnostics';
 import { ImportCodeActionProvider } from './providers/code-action-provider';
 import { ImportHoverProvider } from './providers/hover-provider';
 import { fixAllImports } from './fixes/fix-imports';
-import { initModuleResolver, disposeModuleResolver, ensureModuleResolverReady, setFirstPartyModules, getFirstPartyModules } from './utils/module-resolver';
+import { initModuleResolver, disposeModuleResolver, ensureModuleResolverReady, setGlobalFirstPartyModules, setScopedFirstPartyModules, getFirstPartyModulesSummary } from './utils/module-resolver';
 import { readFirstPartyFromPyproject } from './utils/pyproject-reader';
 import { createOutputChannel, log } from './utils/logger';
 import type { ImportantConfig, ImportIssue } from './types';
@@ -55,12 +55,8 @@ export function activate(context: vscode.ExtensionContext): void {
     // Register commands
     context.subscriptions.push(
         vscode.commands.registerCommand('important.showFirstPartyModules', () => {
-            const modules = getFirstPartyModules();
-            if (modules.length === 0) {
-                vscode.window.showInformationMessage('No first-party modules configured.');
-            } else {
-                vscode.window.showInformationMessage(`First-party modules: ${modules.join(', ')}`);
-            }
+            const summary = getFirstPartyModulesSummary();
+            vscode.window.showInformationMessage(summary);
         }),
         vscode.commands.registerCommand('important.fixImports', async () => {
             const editor = vscode.window.activeTextEditor;
@@ -212,31 +208,25 @@ function getConfig(): ImportantConfig {
 async function loadFirstPartyModules(): Promise<void> {
     const config = getConfig();
 
-    const modules = new Set<string>(config.knownFirstParty);
-
+    // Global first-party modules from VS Code settings — apply to all documents
     if (config.knownFirstParty.length > 0) {
-        log(`First-party modules from settings: ${config.knownFirstParty.join(', ')}`);
+        log(`First-party modules from settings (global): ${config.knownFirstParty.join(', ')}`);
     }
+    setGlobalFirstPartyModules(config.knownFirstParty);
 
+    // Scoped first-party modules from pyproject.toml files
     if (config.readFromPyprojectToml) {
-        const fromToml = await readFirstPartyFromPyproject();
-        if (fromToml.length > 0) {
-            log(`First-party modules from pyproject.toml: ${fromToml.join(', ')}`);
-        }
-        for (const m of fromToml) {
-            modules.add(m);
+        const scoped = await readFirstPartyFromPyproject();
+        setScopedFirstPartyModules(scoped);
+        if (scoped.length > 0) {
+            for (const entry of scoped) {
+                log(`First-party modules from pyproject.toml (${entry.dirPath}): ${entry.modules.join(', ')}`);
+            }
         }
     } else {
         log('pyproject.toml reading is disabled.');
+        setScopedFirstPartyModules([]);
     }
-
-    const all = [...modules];
-    if (all.length > 0) {
-        log(`Resolved first-party modules: ${all.join(', ')}`);
-    } else {
-        log('No first-party modules configured.');
-    }
-    setFirstPartyModules(all);
 }
 
 /** Pending validation timers keyed by document URI */

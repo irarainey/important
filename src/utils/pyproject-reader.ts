@@ -1,35 +1,49 @@
 import * as vscode from 'vscode';
+import type { ScopedFirstParty } from '../types';
 import { log } from './logger';
 
 /**
- * Reads `known-first-party` entries from `[tool.ruff.lint.isort]` in a
- * workspace `pyproject.toml`.
+ * Reads `known-first-party` entries from `[tool.ruff.lint.isort]` in every
+ * `pyproject.toml` found in the workspace.
+ *
+ * Returns one {@link ScopedFirstParty} entry per file that declares modules,
+ * sorted root-first so that the most general scope takes precedence during
+ * iteration.
  *
  * Uses a lightweight regex-based parser — no TOML library dependency.
- * Returns an empty array when no file is found or the section doesn't exist.
  */
-export async function readFirstPartyFromPyproject(): Promise<readonly string[]> {
-    const files = await vscode.workspace.findFiles('**/pyproject.toml', '**/node_modules/**', 5);
+export async function readFirstPartyFromPyproject(): Promise<readonly ScopedFirstParty[]> {
+    const files = await vscode.workspace.findFiles('**/pyproject.toml', '{**/node_modules/**,**/.venv/**,**/venv/**}');
 
     if (files.length === 0) {
         log('No pyproject.toml found in workspace.');
         return [];
     }
 
+    // Sort by depth (root-level first) so callers can rely on ordering.
+    files.sort((a, b) => {
+        const aDepth = vscode.workspace.asRelativePath(a, false).split('/').length;
+        const bDepth = vscode.workspace.asRelativePath(b, false).split('/').length;
+        return aDepth - bDepth;
+    });
+
     log(`Found ${files.length} pyproject.toml file(s) — scanning for [tool.ruff.lint.isort]…`);
-    const results = new Set<string>();
+    const results: ScopedFirstParty[] = [];
 
     for (const file of files) {
         const modules = await parseFirstPartyFromFile(file);
         if (modules.length > 0) {
-            log(`${vscode.workspace.asRelativePath(file)}: known-first-party = [${modules.join(', ')}]`);
-        }
-        for (const m of modules) {
-            results.add(m);
+            const relativePath = vscode.workspace.asRelativePath(file, false);
+            // Directory containing the pyproject.toml.  "pyproject.toml" at
+            // the workspace root produces "." via this logic.
+            const lastSlash = relativePath.lastIndexOf('/');
+            const dirPath = lastSlash === -1 ? '.' : relativePath.slice(0, lastSlash);
+            log(`${relativePath}: known-first-party = [${modules.join(', ')}]`);
+            results.push({ dirPath, modules });
         }
     }
 
-    return [...results];
+    return results;
 }
 
 /**

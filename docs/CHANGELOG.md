@@ -2,6 +2,11 @@
 
 - Fixed import sorting to place `import` statements before `from` statements within each group, matching Ruff/isort default behaviour (`force_sort_within_sections = false`) and resolving I001 violations.
 - Updated alphabetical order validation to account for `import`-before-`from` ordering.
+- **Monorepo-aware first-party modules**: `pyproject.toml` scanning is no longer limited to 5 files. Modules declared in a nested `pyproject.toml` are now **scoped** to that directory subtree, so each sub-project in a monorepo can have its own first-party list.
+- First-party module settings (`important.knownFirstParty`) are treated as **global** and apply to all documents.
+- `getImportCategory()` and `isFirstPartyModule()` now accept an optional document URI for path-scoped resolution.
+- Added `ScopedFirstParty` type to represent directory-scoped first-party module entries.
+- **Show First-Party Modules** command now displays scoped entries with their directory paths.
 
 ## 0.2.0
 

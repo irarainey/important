@@ -61,6 +61,20 @@ export type ImportIssueCode =
 export type ImportCategory = 'future' | 'stdlib' | 'third-party' | 'first-party' | 'local';
 
 /**
+ * Associates a set of first-party module names with the workspace-relative
+ * directory that contains the `pyproject.toml` they were read from.
+ *
+ * Modules from a scoped entry only apply to documents whose
+ * workspace-relative path starts with {@link dirPath}.
+ */
+export interface ScopedFirstParty {
+    /** Workspace-relative directory containing the `pyproject.toml` (e.g. `"packages/api"`). `"."` for the workspace root. */
+    readonly dirPath: string;
+    /** Module root names declared as first-party in that scope. */
+    readonly modules: readonly string[];
+}
+
+/**
  * Configuration options for the extension.
  */
 export interface ImportantConfig {

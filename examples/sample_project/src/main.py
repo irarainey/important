@@ -11,6 +11,7 @@ import os, sys, json
 
 # ⚠️ VIOLATION: Wrong order (third-party before stdlib)
 import requests
+from collections import abc
 import pathlib
 
 # ⚠️ VIOLATION: Unused import
@@ -21,6 +22,9 @@ from os.path import *
 
 # ⚠️ VIOLATION: Import symbols, not modules
 from models.sample_models import User, Config
+
+# ⚠️ VIOLATION: Import symbols from first-party module
+from sample_project import helpers
 
 # ✅ CORRECT: Standard import
 import logging
@@ -52,6 +56,13 @@ def main() -> None:
     config = Config(debug=True, log_level="DEBUG")
     logger.info("User: %s", user)
     logger.info("Config: %s", config)
+
+    # Use collections.abc
+    logger.info("Is dict a Mapping? %s", issubclass(dict, abc.Mapping))
+
+    # ⚠️ Using first-party module symbol directly
+    logger.info("Greeting: %s", helpers.greet("World"))
+    logger.info("Sum: %d", helpers.add(2, 3))
 
 
 if __name__ == "__main__":

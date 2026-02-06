@@ -15,7 +15,7 @@ import { parseImports } from './import-parser';
  *  4. first-party — explicitly configured project modules
  *  5. local       — relative imports & workspace-detected modules
  */
-export function getImportCategory(importStmt: ImportStatement): ImportCategory {
+export function getImportCategory(importStmt: ImportStatement, documentUri?: vscode.Uri): ImportCategory {
     // __future__ imports always come first (Google style 3.13)
     if (importStmt.module === '__future__') {
         return 'future';
@@ -31,7 +31,7 @@ export function getImportCategory(importStmt: ImportStatement): ImportCategory {
     }
 
     // Check whether the module is explicitly configured as first-party
-    if (isFirstPartyModule(importStmt.module)) {
+    if (isFirstPartyModule(importStmt.module, documentUri)) {
         return 'first-party';
     }
 
@@ -231,7 +231,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
     let lastCategory: ImportCategory | undefined;
 
     for (const imp of imports) {
-        const category = getImportCategory(imp);
+        const category = getImportCategory(imp, document.uri);
         const currentCategoryIndex = categoryOrder.indexOf(category);
         const lastCategoryIndex = lastCategory ? categoryOrder.indexOf(lastCategory) : -1;
 
@@ -255,7 +255,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
     let currentGroupImports: ImportStatement[] = [];
 
     for (const imp of imports) {
-        const category = getImportCategory(imp);
+        const category = getImportCategory(imp, document.uri);
 
         if (category !== currentGroupCategory) {
             // Check alphabetical order of previous group

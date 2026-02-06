@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import type { ScopedFirstParty } from '../types';
 import { log } from './logger';
 
 /**
@@ -13,8 +14,11 @@ import { log } from './logger';
 /** Cached set of workspace-relative module paths (e.g. `mcp_servers/data/company_data`). */
 let knownModulePaths = new Set<string>();
 
-/** Set of explicitly configured first-party module root names. */
-let firstPartyModules = new Set<string>();
+/** Set of globally configured first-party module root names (from VS Code settings). */
+let globalFirstPartyModules = new Set<string>();
+
+/** Path-scoped first-party module entries (from pyproject.toml files). */
+let scopedFirstPartyModules: ScopedFirstParty[] = [];
 
 /** Whether the initial scan has completed. */
 let initialized = false;
@@ -133,35 +137,86 @@ export function disposeModuleResolver(): void {
     watcher?.dispose();
     watcher = undefined;
     knownModulePaths.clear();
-    firstPartyModules.clear();
+    globalFirstPartyModules.clear();
+    scopedFirstPartyModules = [];
     initialized = false;
     initPromise = undefined;
 }
 
 /**
- * Sets the known first-party module root names.
+ * Sets the globally configured first-party module root names
+ * (from the `important.knownFirstParty` VS Code setting).
  *
- * Called from the extension activation path after merging config values
- * and any entries discovered in `pyproject.toml`.
+ * These apply to every document regardless of workspace path.
  */
-export function setFirstPartyModules(modules: readonly string[]): void {
-    firstPartyModules = new Set(modules);
+export function setGlobalFirstPartyModules(modules: readonly string[]): void {
+    globalFirstPartyModules = new Set(modules);
 }
 
 /**
- * Returns the current set of first-party module names.
+ * Sets path-scoped first-party module entries discovered from
+ * `pyproject.toml` files.
+ *
+ * Each entry's modules only apply when validating a document whose
+ * workspace-relative path is within that entry's directory subtree.
  */
-export function getFirstPartyModules(): readonly string[] {
-    return [...firstPartyModules];
+export function setScopedFirstPartyModules(scoped: readonly ScopedFirstParty[]): void {
+    scopedFirstPartyModules = [...scoped];
 }
 
 /**
- * Returns `true` when the given module (or its root package) has been
- * explicitly configured as first-party.
+ * Returns a human-readable summary of all first-party module entries
+ * (both global and scoped).
  */
-export function isFirstPartyModule(moduleName: string): boolean {
+export function getFirstPartyModulesSummary(): string {
+    const parts: string[] = [];
+
+    if (globalFirstPartyModules.size > 0) {
+        parts.push(`Global: ${[...globalFirstPartyModules].join(', ')}`);
+    }
+
+    for (const entry of scopedFirstPartyModules) {
+        const label = entry.dirPath === '.' ? 'Workspace root (pyproject.toml)' : entry.dirPath;
+        parts.push(`${label}: ${entry.modules.join(', ')}`);
+    }
+
+    return parts.length > 0 ? parts.join('\n') : 'No first-party modules configured.';
+}
+
+/**
+ * Returns `true` when the given module (or its root package) is
+ * considered first-party for a document at the given URI.
+ *
+ * Resolution order:
+ *  1. Global first-party modules (always apply)
+ *  2. Scoped entries whose {@link ScopedFirstParty.dirPath} is an ancestor
+ *     of the document's workspace-relative path
+ */
+export function isFirstPartyModule(moduleName: string, documentUri?: vscode.Uri): boolean {
     const rootModule = moduleName.split('.')[0];
-    return firstPartyModules.has(rootModule);
+
+    // Global modules always apply
+    if (globalFirstPartyModules.has(rootModule)) {
+        return true;
+    }
+
+    // Without a document URI we can only check global
+    if (!documentUri) {
+        return false;
+    }
+
+    const docRelative = vscode.workspace.asRelativePath(documentUri, false);
+
+    for (const entry of scopedFirstPartyModules) {
+        // Root-level scope (".") matches every document
+        if (entry.dirPath === '.' || docRelative.startsWith(entry.dirPath + '/')) {
+            if (entry.modules.includes(rootModule)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 /**

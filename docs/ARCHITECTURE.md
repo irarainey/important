@@ -135,14 +135,32 @@ Categorizes imports for grouping (matching Ruff / isort ordering):
 type ImportCategory = "future" | "stdlib" | "third-party" | "first-party" | "local";
 ```
 
-Category detection (`getImportCategory`):
+Category detection (`getImportCategory(importStmt, documentUri?)`):
 
 1. **`__future__`** — `from __future__ import …` always comes first
 2. **Relative imports** (leading dots) → always `local`
 3. **stdlib** — matched against a built-in list of Python 3.11+ standard library module names
-4. **first-party** — explicitly configured via `important.knownFirstParty` or auto-read from `pyproject.toml`
+4. **first-party** — resolved via global settings **and** path-scoped `pyproject.toml` entries (see below)
 5. **local** — the module's root package exists in the workspace filesystem (via `isLocalModule`)
 6. **third-party** — everything else (installed packages)
+
+### ScopedFirstParty
+
+Associates first-party module names with the workspace-relative directory of the `pyproject.toml` they were read from:
+
+```typescript
+interface ScopedFirstParty {
+	/** Workspace-relative directory, e.g. "packages/api". "." for workspace root. */
+	readonly dirPath: string;
+	/** Module root names declared as first-party in that scope. */
+	readonly modules: readonly string[];
+}
+```
+
+First-party resolution (`isFirstPartyModule(moduleName, documentUri?)`):
+
+1. **Global** modules (from `important.knownFirstParty` setting) always apply.
+2. **Scoped** entries from `pyproject.toml` only apply when the document's workspace-relative path starts with `entry.dirPath + '/'`, or when `dirPath` is `"."` (root scope matches every document).
 
 ## Validation Rules
 
@@ -241,7 +259,9 @@ The `isInStringOrComment` function handles:
 
 1. Create Output channel for logging (`logger.ts`)
 2. Initialise module resolver (scans workspace for `.py` files)
-3. Load first-party module configuration (from settings + `pyproject.toml`)
+3. Load first-party module configuration:
+    - Global modules from `important.knownFirstParty` setting
+    - Scoped modules from all `pyproject.toml` files in the workspace (root-first)
 4. Create `DiagnosticCollection` for import issues
 5. Register `CodeActionProvider` for quick fixes
 6. Register `HoverProvider` for diagnostic hover info
@@ -269,8 +289,8 @@ The extension writes timestamped messages to a dedicated **"Important"** Output 
 
 - Activation and deactivation lifecycle
 - Module resolver initialisation and cache rebuilds (with file counts)
-- First-party module loading (source: settings, `pyproject.toml`, or both)
-- `pyproject.toml` discovery and parsing results
+- First-party module loading — global (from settings) and per-scope (from `pyproject.toml`)
+- `pyproject.toml` discovery, parsing results, and scoped directory paths
 - Fix command execution (with issue counts)
 - Configuration changes
 

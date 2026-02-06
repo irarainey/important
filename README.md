@@ -1,9 +1,5 @@
 # Important
 
-<p align="center">
-  <img src="resources/images/logo.png" alt="Important" width="128" />
-</p>
-
 A Visual Studio Code extension that validates and formats Python import statements according to the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#313-imports-formatting) and [PEP 8](https://peps.python.org/pep-0008/#imports), with [Ruff](https://docs.astral.sh/ruff/)-compatible first-party module support. It provides real-time diagnostics as you type, highlights unused imports, and can automatically fix all issues including wildcard imports, incorrect ordering, and symbol imports. The extension scans your code to understand which imports are actually used and applies intelligent fixes that update both the import statements and all related symbol references throughout your file.
 
 ## Features
@@ -142,6 +138,8 @@ known-first-party = ["myproject", "mypackage"]
 
 The extension watches for `pyproject.toml` changes and reloads automatically.
 
+**Monorepo support**: The extension discovers every `pyproject.toml` in the workspace (excluding `node_modules`, `.venv`, and `venv` directories). Modules declared in a nested `pyproject.toml` are **scoped** — they only apply when validating Python files within that directory subtree. For example, a `packages/api/pyproject.toml` declaring `known-first-party = ["api_core"]` only affects files under `packages/api/`. Modules in the workspace-root `pyproject.toml` apply to all files.
+
 **Manual configuration** via VS Code settings:
 
 ```json
@@ -150,7 +148,9 @@ The extension watches for `pyproject.toml` changes and reloads automatically.
 }
 ```
 
-When both sources are active, values are merged (union of config + TOML).
+Modules configured via settings are **global** — they apply to every document regardless of path.
+
+When both sources are active, global settings and scoped TOML entries are consulted together.
 
 **Resulting import order:**
 
