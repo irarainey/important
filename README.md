@@ -85,7 +85,7 @@ Also available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-cli
 Or via command line:
 
 ```bash
-code --install-extension important-0.1.3.vsix
+code --install-extension important-python-0.2.1.vsix
 ```
 
 ## Configuration
@@ -285,12 +285,12 @@ important/
 
 The sample project includes intentional import violations for testing:
 
-| File                          | Violations                                                     |
-| ----------------------------- | -------------------------------------------------------------- |
-| `src/main.py`                 | Multiple imports, wrong order, unused, wildcard, symbol import |
-| `src/utils/utils.py`          | Symbol import, wrong alphabetical order                        |
-| `src/helpers/helpers.py`      | Multiple imports on one line, unused import                    |
-| `src/models/sample_models.py` | ✅ Clean - no issues (for comparison)                          |
+| File                          | Violations                                                      |
+| ----------------------------- | --------------------------------------------------------------- |
+| `src/main.py`                 | Multiple imports, wrong order, unused, wildcard, symbol imports |
+| `src/utils/utils.py`          | Relative import, symbol import, wrong alphabetical order        |
+| `src/helpers/helpers.py`      | Multiple imports on one line, unused import                     |
+| `src/models/sample_models.py` | ✅ Clean - no issues (for comparison)                           |
 
 ### Available Scripts
 

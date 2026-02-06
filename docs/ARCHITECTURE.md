@@ -138,6 +138,12 @@ Categorizes imports for grouping (matching Ruff / isort ordering):
 type ImportCategory = "future" | "stdlib" | "third-party" | "first-party" | "local";
 ```
 
+The canonical ordering is exposed as:
+
+```typescript
+const CATEGORY_ORDER: readonly ImportCategory[] = ["future", "stdlib", "third-party", "first-party", "local"];
+```
+
 Category detection (`getImportCategory(importStmt, documentUri?)`):
 
 1. **`__future__`** — `from __future__ import …` always comes first
@@ -210,17 +216,20 @@ The parser:
 3. Tracks relative import level (number of dots)
 4. Collects multi-line imports by tracking parentheses
 5. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
+6. Stops scanning after the import block ends — once the first import is found, 2 consecutive non-import, non-blank, non-comment lines terminate the scan (blank lines, comments, docstrings, `__all__`, and `if TYPE_CHECKING` guards are permitted between imports)
 
-### Symbol Usage Detection (`import-validator.ts`, `sort-imports.ts`)
+### Symbol Usage Detection (`text-utils.ts`)
 
-Determines if an imported name is used:
+The shared `isNameUsedOutsideLines()` function determines if an imported name is referenced anywhere in the document outside the import lines:
 
 1. Create regex pattern: `\b{name}\b` (word boundary match)
 2. Search entire document text
 3. For each match:
-    - Skip if within the import's line range (`line` to `endLine`) — correctly handles multi-line imports
-    - Skip if in a comment (check for `#` before match)
+    - Skip if on an excluded line (the import's line range, via `Set<number>`)
+    - Skip if in a string or comment (via `isInStringOrComment` — handles `#` comments, single/double/triple quotes, and f-string expressions)
 4. Return true if any valid usage found
+
+This function is used by both `import-validator.ts` (unused import detection) and `sort-imports.ts` (filtering unused imports during sorting).
 
 ### Wildcard Import Fixing (`fix-imports.ts`)
 
@@ -267,7 +276,7 @@ The `isInStringOrComment` function handles:
     - Global modules from `important.knownFirstParty` setting
     - Scoped modules from all `pyproject.toml` files in the workspace (root-first)
 4. Create `DiagnosticCollection` for import issues
-5. Register `CodeActionProvider` for quick fixes
+5. Register `CodeActionProvider` for quick fixes (reads from `DiagnosticCollection` rather than re-validating)
 6. Register `HoverProvider` for diagnostic hover info
 7. Register commands (`important.fixImports`, `important.showFirstPartyModules`)
 8. Set up event handlers:
@@ -355,7 +364,12 @@ To support wildcard fixing for a new module:
 
 ## Performance Considerations
 
-- Validation is debounced (50ms) to avoid excessive CPU usage during typing
-- Symbol usage detection uses efficient regex matching
-- Fresh document references are obtained to ensure accurate content
-- Sort iterations are capped at 5 to prevent infinite loops
+- **Validation debouncing**: Validation is debounced (50ms) to avoid excessive CPU usage during typing
+- **Import category caching**: `getImportCategory()` results are cached per `validateImports()` call, avoiding redundant recomputation across Rules 5 and 6
+- **Index-based module lookups**: `isLocalModule()` and `isModuleFile()` use pre-built indices (`rootModuleIndex` and `moduleFileSuffixes`) for O(1) lookups instead of iterating all module paths
+- **Incremental cache updates**: File creation adds a single entry to the module cache; file deletion rebuilds indices (since shared segments can't be removed incrementally)
+- **Early import-block termination**: The parser stops scanning after the import block ends, avoiding full-document traversal for large Python files
+- **Diagnostic reuse**: The `CodeActionProvider` reads from the existing `DiagnosticCollection` instead of re-running validation on every code-action request
+- **Shared usage detection**: A single `isNameUsedOutsideLines()` function in `text-utils.ts` is used by both the validator and the sorter, eliminating code duplication
+- **Module-level constants**: `SYMBOL_IMPORT_EXEMPTIONS`, `CATEGORY_ORDER`, and `documentText` are computed once per validation run, not per import
+- **Sort iteration cap**: Sort iterations are capped at 5 to prevent infinite loops
