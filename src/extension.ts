@@ -58,26 +58,6 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    context.subscriptions.push(
-        vscode.commands.registerCommand('important.validateImports', () => {
-            const editor = vscode.window.activeTextEditor;
-            if (!editor || editor.document.languageId !== 'python') {
-                vscode.window.showWarningMessage('No Python file is currently open.');
-                return;
-            }
-
-            validateDocument(editor.document);
-            const diagnostics = diagnosticCollection.get(editor.document.uri);
-            const count = diagnostics?.length ?? 0;
-
-            if (count > 0) {
-                vscode.window.showWarningMessage(`Found ${count} import issue(s).`);
-            } else {
-                vscode.window.showInformationMessage('No import issues found.');
-            }
-        })
-    );
-
     // Validate on document open (always active)
     context.subscriptions.push(
         vscode.workspace.onDidOpenTextDocument(doc => {

@@ -3,7 +3,7 @@
   "displayName": "Important",
   "description": "A Visual Studio Code extension to validate and format Python import statements according to the Google Python Style Guide.",
   "icon": "resources/images/logo.png",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "publisher": "irarainey",
   "author": {
     "name": "Ira Rainey",
@@ -43,11 +43,6 @@
       {
         "command": "important.fixImports",
         "title": "Fix Imports in This File",
-        "category": "Important"
-      },
-      {
-        "command": "important.validateImports",
-        "title": "Validate Imports in This File",
         "category": "Important"
       }
     ],
@@ -95,8 +90,6 @@
     "compile:tsc": "tsc -p ./",
     "pretest": "npm run compile:tsc",
     "lint": "eslint src --ext ts",
-    "build:runtime": "./scripts/download-python-standalone.sh",
-    "package:full": "npm run build:runtime && npm run compile && mkdir -p package && vsce package --no-dependencies -o package/",
     "package": "npm run compile && mkdir -p package && vsce package --no-dependencies -o package/"
   },
   "devDependencies": {

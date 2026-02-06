@@ -220,7 +220,7 @@ The `isInStringOrComment` function handles:
 1. Create `DiagnosticCollection` for import issues
 2. Register `CodeActionProvider` for quick fixes
 3. Register `HoverProvider` for diagnostic hover info
-4. Register commands (`important.fixImports`, `important.validateImports`)
+4. Register command (`important.fixImports`)
 5. Set up event handlers:
     - `onDidOpenTextDocument` - validate on open
     - `onDidChangeTextDocument` - validate on type (debounced)

@@ -63,7 +63,6 @@ user = user.User()
 ### Commands
 
 - **Important: Fix Imports in This File** - Apply all available fixes, remove unused imports, and sort
-- **Important: Validate Imports in This File** - Run validation manually
 
 Access via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-click context menu.
 
@@ -205,8 +204,6 @@ important/
 │       ├── module-symbols.ts   # Known symbols for wildcard import fixing
 │       ├── stdlib-modules.ts   # Python standard library module list
 │       └── text-utils.ts       # Text/regex utilities
-├── python-runtime/             # Python runtimes (for future isort integration)
-│   └── README.md               # Runtime build instructions
 ├── examples/
 │   └── sample_project/         # Sample Python project for testing
 │       └── src/
@@ -214,9 +211,6 @@ important/
 │           ├── helpers/helpers.py  # Parent relative import, multiple imports
 │           ├── models/models.py    # Clean file (no issues)
 │           └── utils/utils.py      # Relative imports, symbol imports
-├── scripts/
-│   ├── download-python-standalone.sh  # Download Python runtimes
-│   └── build-python-runtime.sh        # Build runtime from local Python
 ├── docs/
 │   └── ARCHITECTURE.md         # Developer documentation
 ├── dist/                       # Compiled output (generated)
@@ -245,14 +239,12 @@ The sample project includes intentional import violations for testing:
 
 ### Available Scripts
 
-| Script                  | Description                                             |
-| ----------------------- | ------------------------------------------------------- |
-| `npm run compile`       | Build with source maps                                  |
-| `npm run watch`         | Build and watch for changes                             |
-| `npm run lint`          | Run ESLint                                              |
-| `npm run package`       | Create .vsix package                                    |
-| `npm run build:runtime` | Download Python runtimes (for future isort integration) |
-| `npm run package:full`  | Build runtime + create .vsix package                    |
+| Script            | Description                 |
+| ----------------- | --------------------------- |
+| `npm run compile` | Build with source maps      |
+| `npm run watch`   | Build and watch for changes |
+| `npm run lint`    | Run ESLint                  |
+| `npm run package` | Create .vsix package        |
 
 ### Developer Documentation
 
