@@ -8,6 +8,7 @@ import { initModuleResolver, disposeModuleResolver, ensureModuleResolverReady, s
 import { readFirstPartyFromPyproject } from './utils/pyproject-reader';
 import { createOutputChannel, log } from './utils/logger';
 import type { ImportantConfig, ImportIssue } from './types';
+import { logError } from './utils/logger';
 
 /** Diagnostic collection for import validation issues */
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -25,11 +26,11 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Scan workspace for Python modules (async, non-blocking)
     log('Initialising module resolver — scanning workspace for Python files…');
-    void initModuleResolver(context);
+    initModuleResolver(context).catch(err => logError(`Module resolver init failed: ${err}`));
 
     // Load first-party module configuration (async, non-blocking)
     log('Loading first-party module configuration…');
-    void loadFirstPartyModules();
+    loadFirstPartyModules().catch(err => logError(`Failed to load first-party modules: ${err}`));
 
     // Create diagnostic collection
     diagnosticCollection = vscode.languages.createDiagnosticCollection('important');
@@ -140,13 +141,13 @@ export function activate(context: vscode.ExtensionContext): void {
                 // Re-register handlers with new configuration
                 registerConfigDependentHandlers();
                 // Reload first-party modules in case the setting changed
-                void loadFirstPartyModules();
+                loadFirstPartyModules().catch(err => logError(`Reload failed: ${err}`));
             }
         })
     );
 
     // Validate already-open Python documents once the module resolver is ready
-    void ensureModuleResolverReady().then(() => {
+    ensureModuleResolverReady().then(() => {
         const pythonDocs = vscode.workspace.textDocuments.filter(d => d.languageId === 'python');
         if (pythonDocs.length > 0) {
             log(`Module resolver ready — validating ${pythonDocs.length} open Python document(s)…`);
@@ -156,13 +157,13 @@ export function activate(context: vscode.ExtensionContext): void {
         } else {
             log('Module resolver ready — no open Python documents to validate.');
         }
-    });
+    }).catch(err => logError(`Module resolver failed: ${err}`));
 
     // Watch for pyproject.toml changes to auto-reload first-party modules
     const tomlWatcher = vscode.workspace.createFileSystemWatcher('**/pyproject.toml');
-    tomlWatcher.onDidChange(() => { log('pyproject.toml changed — reloading first-party modules…'); void loadFirstPartyModules(); });
-    tomlWatcher.onDidCreate(() => { log('pyproject.toml created — loading first-party modules…'); void loadFirstPartyModules(); });
-    tomlWatcher.onDidDelete(() => { log('pyproject.toml deleted — reloading first-party modules…'); void loadFirstPartyModules(); });
+    tomlWatcher.onDidChange(() => { log('pyproject.toml changed — reloading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Reload failed: ${err}`)); });
+    tomlWatcher.onDidCreate(() => { log('pyproject.toml created — loading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Load failed: ${err}`)); });
+    tomlWatcher.onDidDelete(() => { log('pyproject.toml deleted — reloading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Reload failed: ${err}`)); });
     context.subscriptions.push(tomlWatcher);
 
     log('Important extension activated.');

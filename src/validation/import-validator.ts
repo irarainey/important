@@ -5,6 +5,9 @@ import { escapeRegex } from '../utils/text-utils';
 import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
+/** Modules exempt from Rule 4 (import-modules-not-symbols) per Google style 2.2.4.1. */
+const SYMBOL_IMPORT_EXEMPTIONS = ['typing', 'typing_extensions', 'collections.abc'] as const;
+
 /**
  * Determines the category of an import for grouping purposes.
  *
@@ -98,6 +101,7 @@ function findUnusedNames(document: vscode.TextDocument, imp: ImportStatement): s
 export function validateImports(document: vscode.TextDocument): ImportIssue[] {
     const issues: ImportIssue[] = [];
     const imports = parseImports(document);
+    const documentText = document.getText();
 
     for (const imp of imports) {
         // Rule 1: No relative imports
@@ -139,7 +143,6 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
         // Google style prefers: import module, then use module.Symbol
         // or: from package import module, then use module.Symbol
         // Exemptions per 2.2.4.1: typing, collections.abc, typing_extensions
-        const SYMBOL_IMPORT_EXEMPTIONS = ['typing', 'typing_extensions', 'collections.abc'];
         const isExempt = SYMBOL_IMPORT_EXEMPTIONS.some(
             exempt => imp.module === exempt || imp.module.startsWith(`${exempt}.`)
         );
@@ -163,7 +166,6 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
             //  2. Usage pattern: the name is used with dot access (name.attr),
             //     which strongly indicates module-like usage.  Only applies
             //     to snake_case names (Python module convention).
-            const documentText = document.getText();
             const isModuleImport = !confirmedSymbolImport && imp.names.some(name => {
                 // Filesystem check: does a .py file or package exist?
                 if (moduleParts.length >= 2 && isWorkspaceModule(imp.module, name)) {
