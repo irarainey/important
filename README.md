@@ -259,11 +259,14 @@ important/
 │       └── text-utils.ts      			# Text/regex utilities
 ├── tests/
 │   └── application/         		# Sample Python project for testing
-│       ├── other_library/         	# First-party package for testing
-│       │   ├── __init__.py
-│       │   └── helpers.py
+│       ├── other_library/         	# First-party package (with nested modules)
+│       │   ├── core/              	# BaseProcessor, exceptions
+│       │   └── utils/             	# formatting, validation
 │       └── src/
 │           ├── main.py             	# Multiple issues: multi-imports, order, unused
+│           ├── complex_example.py  	# Aliases, multiline, deep namespace imports
+│           ├── alias_examples.py   	# Standard vs non-standard alias testing
+│           ├── services/api/handlers/	# Deep namespace test structure
 │           ├── helpers/helpers.py  	# Parent relative import, multiple imports
 │           ├── models/sample_models.py	# Clean file (no issues)
 │           └── utils/utils.py      	# Relative imports, symbol imports
@@ -290,6 +293,8 @@ The sample project includes intentional import violations for testing:
 | File                          | Violations                                                      |
 | ----------------------------- | --------------------------------------------------------------- |
 | `src/main.py`                 | Multiple imports, wrong order, unused, wildcard, symbol imports |
+| `src/complex_example.py`      | Non-standard aliases, deep namespace, multiline symbol imports  |
+| `src/alias_examples.py`       | Standard vs non-standard aliases, from-alias, typing exemptions |
 | `src/utils/utils.py`          | Relative import, symbol import, wrong alphabetical order        |
 | `src/helpers/helpers.py`      | Multiple imports on one line, unused import                     |
 | `src/models/sample_models.py` | ✅ Clean - no issues (for comparison)                           |
