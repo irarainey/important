@@ -1,7 +1,7 @@
 # Important
 
 <p align="center">
-  <img src="resources/images/logo.png" alt="Important" width="256" />
+  <img src="resources/images/logo.png" alt="Important" width="128" />
 </p>
 
 A Visual Studio Code extension that validates and formats Python import statements according to the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#313-imports-formatting). It provides real-time diagnostics as you type, highlights unused imports, and can automatically fix all issues including wildcard imports, incorrect ordering, and symbol imports. The extension scans your code to understand which imports are actually used and applies intelligent fixes that update both the import statements and all related symbol references throughout your file.
@@ -19,16 +19,16 @@ A Visual Studio Code extension that validates and formats Python import statemen
 
 ### Validation Rules
 
-| Rule                       | Description                                                   | Auto-Fix |
-| -------------------------- | ------------------------------------------------------------- | -------- |
-| No relative imports        | `from .module import x` → `from package.module import x`      | ✅       |
-| No wildcard imports        | `from os.path import *` → `import os` + `os.path.func()`      | ✅       |
-| One import per line        | `import os, sys` → separate statements                        | ✅       |
-| Import modules not symbols | `from pkg.mod import Cls` → `from pkg import mod` + `mod.Cls` | ✅       |
-| Unused imports             | Imports not referenced in code are removed                    | ✅       |
-| Duplicate imports          | Multiple identical imports are merged                         | ✅       |
-| Correct ordering           | stdlib → third-party → local                                  | ✅       |
-| Alphabetical order         | Within each group                                             | ✅       |
+| Rule                       | Description                                                  | Auto-Fix |
+| -------------------------- | ------------------------------------------------------------ | -------- |
+| No relative imports        | `from .module import x` → `from package.module import x`     | ✅       |
+| No wildcard imports        | `from os.path import *` → `import os` + `os.path.func()`     | ✅       |
+| One import per line        | `import os, sys` → separate statements                       | ✅       |
+| Import modules not symbols | `from fastmcp import Cls` → `import fastmcp` + `fastmcp.Cls` | ✅       |
+| Unused imports             | Imports not referenced in code are removed                   | ✅       |
+| Duplicate imports          | Multiple identical imports are merged                        | ✅       |
+| Correct ordering           | stdlib → third-party → local                                 | ✅       |
+| Alphabetical order         | Within each group                                            | ✅       |
 
 ### Example
 
@@ -86,7 +86,7 @@ Access via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-click conte
 Or via command line:
 
 ```bash
-code --install-extension important-0.0.3.vsix
+code --install-extension important-0.1.3.vsix
 ```
 
 ## Configuration
@@ -201,6 +201,7 @@ important/
 │   │   ├── fix-imports.ts      # Fix all imports command
 │   │   └── sort-imports.ts     # Import sorting
 │   └── utils/                  # Utility modules
+│       ├── module-resolver.ts  # Workspace Python module detection
 │       ├── module-symbols.ts   # Known symbols for wildcard import fixing
 │       ├── stdlib-modules.ts   # Python standard library module list
 │       └── text-utils.ts       # Text/regex utilities
@@ -209,10 +210,11 @@ important/
 │       └── src/
 │           ├── main.py             # Multiple issues: multi-imports, order, unused
 │           ├── helpers/helpers.py  # Parent relative import, multiple imports
-│           ├── models/models.py    # Clean file (no issues)
+│           ├── models/sample_models.py  # Clean file (no issues)
 │           └── utils/utils.py      # Relative imports, symbol imports
 ├── docs/
 │   └── ARCHITECTURE.md         # Developer documentation
+├── CHANGELOG.md                # Release changelog
 ├── dist/                       # Compiled output (generated)
 ├── package.json                # Extension manifest & dependencies
 ├── tsconfig.json               # TypeScript configuration
@@ -230,12 +232,12 @@ important/
 
 The sample project includes intentional import violations for testing:
 
-| File                     | Violations                                                     |
-| ------------------------ | -------------------------------------------------------------- |
-| `src/main.py`            | Multiple imports, wrong order, unused, wildcard, symbol import |
-| `src/utils/utils.py`     | Symbol import, wrong alphabetical order                        |
-| `src/helpers/helpers.py` | Multiple imports on one line, unused import                    |
-| `src/models/models.py`   | ✅ Clean - no issues (for comparison)                          |
+| File                          | Violations                                                     |
+| ----------------------------- | -------------------------------------------------------------- |
+| `src/main.py`                 | Multiple imports, wrong order, unused, wildcard, symbol import |
+| `src/utils/utils.py`          | Symbol import, wrong alphabetical order                        |
+| `src/helpers/helpers.py`      | Multiple imports on one line, unused import                    |
+| `src/models/sample_models.py` | ✅ Clean - no issues (for comparison)                          |
 
 ### Available Scripts
 

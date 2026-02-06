@@ -23,6 +23,7 @@ src/
 │   ├── fix-imports.ts              # Main fix orchestration
 │   └── sort-imports.ts             # Sorting, deduplication, unused removal
 └── utils/
+    ├── module-resolver.ts          # Workspace Python module detection
     ├── stdlib-modules.ts           # Python stdlib module list
     ├── module-symbols.ts           # Known symbols for wildcard fixing
     └── text-utils.ts               # Regex escaping, string/comment detection
@@ -77,7 +78,10 @@ Document Change
       │    - Convert to module import
       │
       ├──► Fix import-modules-not-symbols
-      │    - Update import statement
+      │    - Detect symbol imports via workspace module scanning
+      │      and dot-access usage heuristics
+      │    - Top-level: from pkg import Cls → import pkg
+      │    - Deep: from pkg.mod import Cls → from pkg import mod
       │    - Replace symbol usages with qualified names
       │
       └──► sortImportsInDocument() (up to 5 iterations)
@@ -137,9 +141,16 @@ type ImportCategory = "stdlib" | "third-party" | "local";
 | `no-wildcard-imports`        | No `from X import *`            | Warning  | Convert to module import  |
 | `no-multiple-imports`        | No `import os, sys`             | Warning  | Split to separate lines   |
 | `import-modules-not-symbols` | Import modules, not symbols     | Info     | Refactor to module access |
-| `unused-import`              | Remove unused imports           | Hint     | Delete or trim            |
-| `wrong-import-order`         | stdlib → third-party → local    | Info     | Reorder                   |
-| `wrong-alphabetical-order`   | Alphabetical within groups      | Info     | Reorder                   |
+
+The `import-modules-not-symbols` rule uses a multi-layered approach to distinguish module imports from symbol imports:
+
+1. **Workspace scanning**: A module resolver (`module-resolver.ts`) scans the workspace for `.py` files on activation and maintains a cached set of known module paths. A file-system watcher keeps the cache current.
+2. **Dot-access heuristic**: If an imported name is used with dot access (`name.attr`) in the file, it is treated as a module.
+3. If neither check identifies the import as a module, the name is assumed to be a symbol and the import is flagged.
+
+| `unused-import` | Remove unused imports | Hint | Delete or trim |
+| `wrong-import-order` | stdlib → third-party → local | Info | Reorder |
+| `wrong-alphabetical-order` | Alphabetical within groups | Info | Reorder |
 
 ## Key Algorithms
 
@@ -217,22 +228,24 @@ The `isInStringOrComment` function handles:
 
 ### Activation (`extension.ts`)
 
-1. Create `DiagnosticCollection` for import issues
-2. Register `CodeActionProvider` for quick fixes
-3. Register `HoverProvider` for diagnostic hover info
-4. Register command (`important.fixImports`)
-5. Set up event handlers:
+1. Initialise module resolver (scans workspace for `.py` files)
+2. Create `DiagnosticCollection` for import issues
+3. Register `CodeActionProvider` for quick fixes
+4. Register `HoverProvider` for diagnostic hover info
+5. Register command (`important.fixImports`)
+6. Set up event handlers:
     - `onDidOpenTextDocument` - validate on open
     - `onDidChangeTextDocument` - validate on type (debounced)
     - `onDidSaveTextDocument` - validate on save (if enabled)
     - `onDidChangeActiveTextEditor` - revalidate when switching files
-6. Validate all currently-open Python documents
+7. Validate all currently-open Python documents
 
 ### Deactivation
 
 1. Clear pending validation timers
 2. Dispose config-dependent handlers
-3. Dispose diagnostic collection
+3. Dispose module resolver
+4. Dispose diagnostic collection
 
 ## Configuration
 

@@ -4,12 +4,12 @@ A minimal Python project for testing the **Important** extension.
 
 ## Files
 
-| File                     | Import Issues                                                         |
-| ------------------------ | --------------------------------------------------------------------- |
-| `src/main.py`            | Multiple imports, wrong order, unused, wildcard import, symbol import |
-| `src/utils/utils.py`     | Symbol import, wrong alphabetical order                               |
-| `src/helpers/helpers.py` | Multiple imports on one line, unused import                           |
-| `src/models/models.py`   | ✅ Clean - no issues (for comparison)                                 |
+| File                          | Import Issues                                                         |
+| ----------------------------- | --------------------------------------------------------------------- |
+| `src/main.py`                 | Multiple imports, wrong order, unused, wildcard import, symbol import |
+| `src/utils/utils.py`          | Symbol import, wrong alphabetical order                               |
+| `src/helpers/helpers.py`      | Multiple imports on one line, unused import                           |
+| `src/models/sample_models.py` | ✅ Clean - no issues (for comparison)                                 |
 
 ## Testing the Extension
 
