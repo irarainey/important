@@ -111,19 +111,29 @@ function parseMultilineImport(
 
 /**
  * Parses all import statements from a document.
+ *
+ * Stops scanning once the import block ends (first non-import,
+ * non-blank, non-comment line that isn't a docstring or `if
+ * TYPE_CHECKING` guard), since Python imports must appear at the
+ * top of the module.
  */
 export function parseImports(document: vscode.TextDocument): ImportStatement[] {
     const imports: ImportStatement[] = [];
     let i = 0;
+    let foundFirstImport = false;
+    let consecutiveNonImportLines = 0;
 
     while (i < document.lineCount) {
         const line = document.lineAt(i).text;
+        const trimmed = line.trim();
 
         // Check for multiline import (contains 'import (' without closing ')')
         if (line.includes('import (') && !line.includes(')')) {
             const multiline = parseMultilineImport(document, i);
             if (multiline) {
                 imports.push(multiline.import);
+                foundFirstImport = true;
+                consecutiveNonImportLines = 0;
                 i = multiline.endLine + 1;
                 continue;
             }
@@ -133,6 +143,27 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
         const parsed = parseImportLine(line, i);
         if (parsed) {
             imports.push(parsed);
+            foundFirstImport = true;
+            consecutiveNonImportLines = 0;
+        } else if (foundFirstImport) {
+            // Allow blank lines, comments, docstrings, __all__, and
+            // TYPE_CHECKING guards between/after imports
+            const isPermitted = trimmed === ''
+                || trimmed.startsWith('#')
+                || trimmed.startsWith('"""')
+                || trimmed.startsWith("'''")
+                || trimmed.startsWith('if TYPE_CHECKING')
+                || trimmed.startsWith('__all__');
+
+            if (isPermitted) {
+                consecutiveNonImportLines = 0;
+            } else {
+                consecutiveNonImportLines++;
+                // Stop after 2 consecutive non-import lines to avoid false positives
+                if (consecutiveNonImportLines >= 2) {
+                    break;
+                }
+            }
         }
         i++;
     }

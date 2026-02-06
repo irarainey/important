@@ -87,6 +87,12 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
     const imports = parseImports(document);
     const documentText = document.getText();
 
+    // Cache import categories — avoids recomputing in Rules 5 and 6
+    const categoryCache = new Map<ImportStatement, ImportCategory>();
+    for (const imp of imports) {
+        categoryCache.set(imp, getImportCategory(imp, document.uri));
+    }
+
     for (const imp of imports) {
         // Rule 1: No relative imports
         if (imp.level > 0) {
@@ -238,7 +244,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
     let lastCategory: ImportCategory | undefined;
 
     for (const imp of imports) {
-        const category = getImportCategory(imp, document.uri);
+        const category = categoryCache.get(imp)!;
         const currentCategoryIndex = CATEGORY_ORDER.indexOf(category);
         const lastCategoryIndex = lastCategory ? CATEGORY_ORDER.indexOf(lastCategory) : -1;
 
@@ -262,7 +268,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
     let currentGroupImports: ImportStatement[] = [];
 
     for (const imp of imports) {
-        const category = getImportCategory(imp, document.uri);
+        const category = categoryCache.get(imp)!;
 
         if (category !== currentGroupCategory) {
             // Check alphabetical order of previous group

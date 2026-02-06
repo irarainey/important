@@ -112,8 +112,8 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
     for (const imp of normalized) {
         const key = `${imp.type}:${imp.module}`;
 
-        if (seenImports.has(key)) {
-            const existing = seenImports.get(key)!;
+        const existing = seenImports.get(key);
+        if (existing) {
             if (imp.type === 'from' && !imp.names.includes('*') && !existing.names.includes('*')) {
                 // Merge names for from imports
                 for (const name of imp.names) {

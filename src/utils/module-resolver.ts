@@ -14,6 +14,19 @@ import { log } from './logger';
 /** Cached set of workspace-relative module paths (e.g. `mcp_servers/data/company_data`). */
 let knownModulePaths = new Set<string>();
 
+/**
+ * Index mapping each path segment to the set of full module paths
+ * that contain that segment.  Used by {@link isLocalModule} for O(1)
+ * root-module lookups instead of iterating all paths.
+ */
+let rootModuleIndex = new Map<string, Set<string>>();
+
+/**
+ * Set of slash-path suffixes for non-`__init__` modules.  Used by
+ * {@link isModuleFile} for fast suffix lookups.
+ */
+let moduleFileSuffixes = new Set<string>();
+
 /** Set of globally configured first-party module root names (from VS Code settings). */
 let globalFirstPartyModules = new Set<string>();
 
@@ -46,8 +59,8 @@ export async function initModuleResolver(context: vscode.ExtensionContext): Prom
     // Watch for Python file creation / deletion to keep the cache current.
     const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.py');
 
-    fileWatcher.onDidCreate(() => void rebuildCache());
-    fileWatcher.onDidDelete(() => void rebuildCache());
+    fileWatcher.onDidCreate(uri => addToCache(uri));
+    fileWatcher.onDidDelete(uri => removeFromCache(uri));
 
     watcher = fileWatcher;
     context.subscriptions.push(fileWatcher);
@@ -115,20 +128,7 @@ export function isModuleFile(moduleName: string): boolean {
     }
 
     const moduleSlashPath = moduleName.replace(/\./g, '/');
-
-    for (const known of knownModulePaths) {
-        // Match if the cached path ends with the module's slash path
-        // and is either the full path or preceded by a /
-        // e.g. "src/sample/service/config" ends with "sample/service/config"
-        if (known === moduleSlashPath || known.endsWith(`/${moduleSlashPath}`)) {
-            // Ensure it's a file, not a package directory (__init__)
-            if (!known.endsWith('/__init__')) {
-                return true;
-            }
-        }
-    }
-
-    return false;
+    return moduleFileSuffixes.has(moduleSlashPath);
 }
 
 /**
@@ -148,19 +148,7 @@ export function isLocalModule(moduleName: string): boolean {
     }
 
     const rootModule = moduleName.split('.')[0];
-
-    for (const known of knownModulePaths) {
-        // Split the workspace-relative path into segments and check for
-        // an exact segment match against the root module name.
-        // e.g. "src/models/sample_models" has segments ["src","models","sample_models"]
-        //      → matches rootModule "models"
-        const segments = known.split('/');
-        if (segments.includes(rootModule)) {
-            return true;
-        }
-    }
-
-    return false;
+    return rootModuleIndex.has(rootModule);
 }
 
 /**
@@ -170,6 +158,8 @@ export function disposeModuleResolver(): void {
     watcher?.dispose();
     watcher = undefined;
     knownModulePaths.clear();
+    rootModuleIndex.clear();
+    moduleFileSuffixes.clear();
     globalFirstPartyModules.clear();
     scopedFirstPartyModules = [];
     initialized = false;
@@ -259,7 +249,8 @@ export function isFirstPartyModule(moduleName: string, documentUri?: vscode.Uri)
 const EXCLUDE_PATTERN = '{**/node_modules/**,**/.venv/**,**/venv/**,**/.env/**,**/env/**,**/__pypackages__/**,**/.tox/**,**/.nox/**,**/.pyenv/**,**/site-packages/**}';
 
 /**
- * Rebuilds the module-path cache from all `.py` files in the workspace.
+ * Rebuilds the module-path cache and derived indices from all `.py`
+ * files in the workspace.
  */
 async function rebuildCache(): Promise<void> {
     const files = await vscode.workspace.findFiles('**/*.py', EXCLUDE_PATTERN);
@@ -274,5 +265,95 @@ async function rebuildCache(): Promise<void> {
     }
 
     knownModulePaths = paths;
+    rebuildIndices();
     log(`Module cache rebuilt — ${paths.size} Python file(s) indexed.`);
+}
+
+/**
+ * Derives the secondary indices ({@link rootModuleIndex} and
+ * {@link moduleFileSuffixes}) from {@link knownModulePaths}.
+ */
+function rebuildIndices(): void {
+    const segmentIdx = new Map<string, Set<string>>();
+    const suffixes = new Set<string>();
+
+    for (const modulePath of knownModulePaths) {
+        const segments = modulePath.split('/');
+        for (const seg of segments) {
+            let bucket = segmentIdx.get(seg);
+            if (!bucket) {
+                bucket = new Set();
+                segmentIdx.set(seg, bucket);
+            }
+            bucket.add(modulePath);
+        }
+
+        // Build suffix set for isModuleFile: store the path itself and
+        // every unique slash-suffix, excluding __init__ paths.
+        if (!modulePath.endsWith('/__init__')) {
+            suffixes.add(modulePath);
+            let idx = modulePath.indexOf('/');
+            while (idx !== -1) {
+                suffixes.add(modulePath.slice(idx + 1));
+                idx = modulePath.indexOf('/', idx + 1);
+            }
+        }
+    }
+
+    rootModuleIndex = segmentIdx;
+    moduleFileSuffixes = suffixes;
+}
+
+/**
+ * Incrementally adds a single `.py` file to the cache and indices.
+ */
+function addToCache(uri: vscode.Uri): void {
+    const relativePath = vscode.workspace.asRelativePath(uri, false);
+    const modulePath = relativePath.replace(/\.py$/, '');
+
+    if (knownModulePaths.has(modulePath)) {
+        return;
+    }
+
+    knownModulePaths.add(modulePath);
+
+    // Update rootModuleIndex
+    const segments = modulePath.split('/');
+    for (const seg of segments) {
+        let bucket = rootModuleIndex.get(seg);
+        if (!bucket) {
+            bucket = new Set();
+            rootModuleIndex.set(seg, bucket);
+        }
+        bucket.add(modulePath);
+    }
+
+    // Update moduleFileSuffixes
+    if (!modulePath.endsWith('/__init__')) {
+        moduleFileSuffixes.add(modulePath);
+        let idx = modulePath.indexOf('/');
+        while (idx !== -1) {
+            moduleFileSuffixes.add(modulePath.slice(idx + 1));
+            idx = modulePath.indexOf('/', idx + 1);
+        }
+    }
+
+    log(`Module cache updated (+${relativePath})`);
+}
+
+/**
+ * Incrementally removes a single `.py` file from the cache.
+ * Rebuilds indices fully since suffix/segment removal is non-trivial.
+ */
+function removeFromCache(uri: vscode.Uri): void {
+    const relativePath = vscode.workspace.asRelativePath(uri, false);
+    const modulePath = relativePath.replace(/\.py$/, '');
+
+    if (!knownModulePaths.delete(modulePath)) {
+        return;
+    }
+
+    // Full index rebuild — removal of shared segments/suffixes requires it
+    rebuildIndices();
+    log(`Module cache updated (-${relativePath})`);
 }

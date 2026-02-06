@@ -40,7 +40,7 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.languages.registerCodeActionsProvider(
             { language: 'python', scheme: 'file' },
-            new ImportCodeActionProvider(),
+            new ImportCodeActionProvider(diagnosticCollection),
             { providedCodeActionKinds: ImportCodeActionProvider.providedCodeActionKinds }
         )
     );
@@ -176,11 +176,15 @@ export function deactivate(): void {
     log('Important extension deactivating…');
 
     // Clear all pending validation timers
-    pendingValidations.forEach(timer => clearTimeout(timer));
+    for (const timer of pendingValidations.values()) {
+        clearTimeout(timer);
+    }
     pendingValidations.clear();
 
     // Dispose config-dependent handlers
-    configDependentDisposables.forEach(d => d.dispose());
+    for (const d of configDependentDisposables) {
+        d.dispose();
+    }
     configDependentDisposables = [];
 
     disposeModuleResolver();
@@ -242,7 +246,9 @@ const VALIDATION_DELAY = 50;
  */
 function registerConfigDependentHandlers(): void {
     // Dispose existing config-dependent handlers
-    configDependentDisposables.forEach(d => d.dispose());
+    for (const d of configDependentDisposables) {
+        d.dispose();
+    }
     configDependentDisposables = [];
 
     const config = getConfig();
