@@ -217,6 +217,8 @@ important/
 ├── scripts/
 │   ├── download-python-standalone.sh  # Download Python runtimes
 │   └── build-python-runtime.sh        # Build runtime from local Python
+├── docs/
+│   └── ARCHITECTURE.md         # Developer documentation
 ├── dist/                       # Compiled output (generated)
 ├── package.json                # Extension manifest & dependencies
 ├── tsconfig.json               # TypeScript configuration
@@ -251,6 +253,10 @@ The sample project includes intentional import violations for testing:
 | `npm run package`       | Create .vsix package                                    |
 | `npm run build:runtime` | Download Python runtimes (for future isort integration) |
 | `npm run package:full`  | Build runtime + create .vsix package                    |
+
+### Developer Documentation
+
+For detailed architecture, workflow diagrams, and implementation details, see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Requirements
 
