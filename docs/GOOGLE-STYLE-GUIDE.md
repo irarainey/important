@@ -39,3 +39,5 @@ typing module
 collections.abc module
 typing_extensions module
 Redirects from the six.moves module.
+
+This style guide should be considered a superset of the PEP 8 style guide. For more information on imports, see the PEP 8 style guide section on imports at [PEP 8 - Imports](./PEP8.md).
