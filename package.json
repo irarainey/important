@@ -1,5 +1,5 @@
 {
-  "name": "important",
+  "name": "important-python",
   "displayName": "Important",
   "description": "A Visual Studio Code extension to validate and format Python import statements according to the Google Python Style Guide.",
   "icon": "resources/images/logo.png",
