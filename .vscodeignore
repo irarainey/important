@@ -16,6 +16,7 @@ tsconfig.json
 eslint.config.*
 package-lock.json
 .prettierrc*
+docs/**
 
 # Only include the bundled extension.js, not individual compiled files
 dist/**/*.js.map

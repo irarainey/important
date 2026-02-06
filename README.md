@@ -1,7 +1,7 @@
 # Important
 
 <p align="center">
-  <img src="resources/images/logo.png" alt="Important" width="256" />
+  <img src="resources/images/logo.png" alt="Important" />
 </p>
 
 A Visual Studio Code extension that validates and formats Python import statements according to the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#313-imports-formatting). It provides real-time diagnostics as you type, highlights unused imports, and can automatically fix all issues including wildcard imports, incorrect ordering, and symbol imports. The extension scans your code to understand which imports are actually used and applies intelligent fixes that update both the import statements and all related symbol references throughout your file.
