@@ -28,7 +28,7 @@ A Visual Studio Code extension that validates and formats Python import statemen
 | Unused imports             | Imports not referenced in code are removed                   | ✅       |
 | Duplicate imports          | Multiple identical imports are merged                        | ✅       |
 | Correct ordering           | `__future__` → stdlib → third-party → first-party → local    | ✅       |
-| Alphabetical order         | Within each group                                            | ✅       |
+| Sorted within groups       | `import` before `from`, then alphabetically                  | ✅       |
 
 ### Example
 
@@ -121,7 +121,7 @@ Configure via VS Code Settings (`Ctrl+,` / `Cmd+,`):
 The "Fix Imports" command includes automatic import sorting that:
 
 - Groups imports into 5 categories: `__future__` → stdlib → third-party → first-party → local
-- Sorts alphabetically within each group (pure lexicographic, ignoring case)
+- Sorts `import` statements before `from` statements within each group, then alphabetically by module name (ignoring case) — matching [Ruff/isort](https://docs.astral.sh/ruff/rules/unsorted-imports/) default behaviour
 - Splits multi-imports (`import os, sys`) into separate lines
 - Removes unused imports (preserves `__future__` directives)
 - Merges duplicate imports

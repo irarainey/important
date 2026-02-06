@@ -273,26 +273,43 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
 }
 
 /**
- * Checks if imports within a group are sorted lexicographically by
- * module path, ignoring case (Google style 3.13).  `import` and `from`
- * statements are interleaved — the sort key is purely the module path.
+ * Checks if imports within a group are sorted correctly:
+ * `import` statements before `from` statements, then alphabetically
+ * by module path within each sub-group (ignoring case).
+ *
+ * This matches Ruff/isort default behaviour (force_sort_within_sections = false).
  */
 function checkAlphabeticalOrder(imports: ImportStatement[], issues: ImportIssue[]): void {
     for (let i = 1; i < imports.length; i++) {
         const prev = imports[i - 1];
         const current = imports[i];
 
-        const prevModule = prev.module.toLowerCase();
-        const currentModule = current.module.toLowerCase();
-
-        if (currentModule < prevModule) {
+        // `import` statements must come before `from` statements
+        if (prev.type === 'from' && current.type === 'import') {
             issues.push({
                 code: 'wrong-alphabetical-order',
-                message: `Import '${current.module}' should come before '${prev.module}' (alphabetical ordering).`,
+                message: `'import ${current.module}' should come before 'from' imports (import statements first).`,
                 severity: vscode.DiagnosticSeverity.Information,
                 range: new vscode.Range(current.line, 0, current.line, current.text.length),
                 import: current,
             });
+            continue;
+        }
+
+        // Within the same type sub-group, sort alphabetically
+        if (prev.type === current.type) {
+            const prevModule = prev.module.toLowerCase();
+            const currentModule = current.module.toLowerCase();
+
+            if (currentModule < prevModule) {
+                issues.push({
+                    code: 'wrong-alphabetical-order',
+                    message: `Import '${current.module}' should come before '${prev.module}' (alphabetical ordering).`,
+                    severity: vscode.DiagnosticSeverity.Information,
+                    range: new vscode.Range(current.line, 0, current.line, current.text.length),
+                    import: current,
+                });
+            }
         }
     }
 }

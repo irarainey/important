@@ -1,3 +1,8 @@
+## 0.2.1
+
+- Fixed import sorting to place `import` statements before `from` statements within each group, matching Ruff/isort default behaviour (`force_sort_within_sections = false`) and resolving I001 violations.
+- Updated alphabetical order validation to account for `import`-before-`from` ordering.
+
 ## 0.2.0
 
 - Added **first-party** import category matching Ruff's isort behaviour. Import ordering is now 5 groups: `__future__` → stdlib → third-party → first-party → local.

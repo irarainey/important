@@ -153,12 +153,16 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
         groups[imp.category].push(imp);
     }
 
-    // Sort lexicographically by full module path within each group,
-    // ignoring case (Google style 3.13).  import and from are interleaved.
+    // Sort within each group: `import` statements before `from` statements,
+    // then alphabetically by module name within each sub-group (ignoring case).
+    // This matches Ruff/isort default behaviour (force_sort_within_sections = false).
     for (const category of Object.keys(groups) as ImportCategory[]) {
-        groups[category].sort((a, b) =>
-            a.module.toLowerCase().localeCompare(b.module.toLowerCase())
-        );
+        groups[category].sort((a, b) => {
+            if (a.type !== b.type) {
+                return a.type === 'import' ? -1 : 1;
+            }
+            return a.module.toLowerCase().localeCompare(b.module.toLowerCase());
+        });
     }
 
     // Build the sorted import text

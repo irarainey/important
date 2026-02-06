@@ -91,7 +91,7 @@ Document Change
            - Remove unused imports
            - Deduplicate imports
            - Group by category
-           - Sort alphabetically
+           - Sort: `import` before `from`, then alphabetically
            - Apply edit if changed
 ```
 
@@ -222,7 +222,7 @@ Symbol detection skips:
 3. **Filter**: Remove imports where all names are unused (preserves `__future__` directives)
 4. **Deduplicate**: Merge `from X import a` and `from X import b`
 5. **Categorize**: Assign each to future / stdlib / third-party / first-party / local
-6. **Sort**: Alphabetically within each category (pure lexicographic, ignoring case)
+6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case) — matching Ruff/isort default behaviour
 7. **Format**: Join with blank lines between categories
 8. **Apply**: Replace import block if changed
 
