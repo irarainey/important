@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import type { ImportStatement, ImportIssue, ImportCategory } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
 import { escapeRegex } from '../utils/text-utils';
+import { isWorkspaceModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
 /**
@@ -105,22 +106,68 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
         }
 
         // Rule 4: Import modules, not symbols (for non-stdlib 'from x.y import Z' style)
-        // Google style prefers: from package import module, then use module.Symbol
-        if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*')) {
+        // Google style prefers: import module, then use module.Symbol
+        // or: from package import module, then use module.Symbol
+        if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*') && !isStdlibModule(imp.module)) {
             const moduleParts = imp.module.split('.');
-            // Only flag if it's a deep import (has dots) and not stdlib
-            if (moduleParts.length >= 2 && !isStdlibModule(imp.module)) {
-                const parentPackage = moduleParts.slice(0, -1).join('.');
-                const moduleName = moduleParts[moduleParts.length - 1];
 
-                issues.push({
-                    code: 'import-modules-not-symbols',
-                    message: `Import modules, not symbols (Google Python Style Guide). Use 'from ${parentPackage} import ${moduleName}' and access as '${moduleName}.${imp.names[0]}'.`,
-                    severity: vscode.DiagnosticSeverity.Information,
-                    range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
-                    import: imp,
-                    suggestedFix: `from ${parentPackage} import ${moduleName}`,
-                });
+            // Determine whether the imported names are symbols (classes,
+            // functions, constants) rather than sub-modules.  We combine
+            // checks – any one passing means "this is a module import,
+            // don't flag it":
+            //
+            //  1. Workspace filesystem: a matching .py file or package exists.
+            //  2. Usage pattern: the name is used with dot access (name.attr),
+            //     which strongly indicates module-like usage.  Combined with
+            //     snake_case naming (Python module convention) this is a
+            //     reliable signal.
+            const documentText = document.getText();
+            const isModuleImport = imp.names.some(name => {
+                // Filesystem check: does a .py file or package exist?
+                if (moduleParts.length >= 2 && isWorkspaceModule(imp.module, name)) {
+                    return true;
+                }
+
+                // Dot-access check: is the name used with dot access?
+                // For snake_case names this is a strong module signal.
+                const dotAccessPattern = new RegExp(`\\b${escapeRegex(name)}\\.\\w`, 'g');
+                let dotMatch;
+                while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
+                    const pos = document.positionAt(dotMatch.index);
+                    if (pos.line === imp.line) continue;
+                    const lineText = document.lineAt(pos.line).text;
+                    const beforeText = lineText.substring(0, pos.character);
+                    if (beforeText.includes('#')) continue;
+                    return true;
+                }
+                return false;
+            });
+
+            if (!isModuleImport) {
+                if (moduleParts.length >= 2) {
+                    // Deep import: from x.y import Symbol → from x import y
+                    const parentPackage = moduleParts.slice(0, -1).join('.');
+                    const moduleName = moduleParts[moduleParts.length - 1];
+
+                    issues.push({
+                        code: 'import-modules-not-symbols',
+                        message: `Import modules, not symbols (Google Python Style Guide). Use 'from ${parentPackage} import ${moduleName}' and access as '${moduleName}.${imp.names[0]}'.`,
+                        severity: vscode.DiagnosticSeverity.Information,
+                        range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                        import: imp,
+                        suggestedFix: `from ${parentPackage} import ${moduleName}`,
+                    });
+                } else {
+                    // Top-level module: from fastmcp import FastMCP → import fastmcp
+                    issues.push({
+                        code: 'import-modules-not-symbols',
+                        message: `Import modules, not symbols (Google Python Style Guide). Use 'import ${imp.module}' and access as '${imp.module}.${imp.names[0]}'.`,
+                        severity: vscode.DiagnosticSeverity.Information,
+                        range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                        import: imp,
+                        suggestedFix: `import ${imp.module}`,
+                    });
+                }
             }
         }
 

@@ -4,7 +4,8 @@ import { issuesToDiagnostics } from './validation/diagnostics';
 import { ImportCodeActionProvider } from './providers/code-action-provider';
 import { ImportHoverProvider } from './providers/hover-provider';
 import { fixAllImports } from './fixes/fix-imports';
-import type { ImportIssue, ImportantConfig } from './types';
+import { initModuleResolver, disposeModuleResolver } from './utils/module-resolver';
+import type { ImportantConfig } from './types';
 
 /** Diagnostic collection for import validation issues */
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -16,6 +17,9 @@ let configDependentDisposables: vscode.Disposable[] = [];
  * Activates the Important extension.
  */
 export function activate(context: vscode.ExtensionContext): void {
+    // Scan workspace for Python modules (async, non-blocking)
+    void initModuleResolver(context);
+
     // Create diagnostic collection
     diagnosticCollection = vscode.languages.createDiagnosticCollection('important');
     context.subscriptions.push(diagnosticCollection);
@@ -140,6 +144,7 @@ export function deactivate(): void {
     configDependentDisposables.forEach(d => d.dispose());
     configDependentDisposables = [];
 
+    disposeModuleResolver();
     diagnosticCollection?.dispose();
 }
 
