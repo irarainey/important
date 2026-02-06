@@ -256,8 +256,8 @@ important/
 │       ├── stdlib-modules.ts   		# Python standard library module list
 │       └── text-utils.ts      			# Text/regex utilities
 ├── tests/
-│   └── sample_project/         		# Sample Python project for testing
-│       ├── sample_project/         	# First-party package for testing
+│   └── application/         		# Sample Python project for testing
+│       ├── other_library/         	# First-party package for testing
 │       │   ├── __init__.py
 │       │   └── helpers.py
 │       └── src/
@@ -280,7 +280,7 @@ important/
 
 1. Open the project in VS Code
 2. Press `F5` to launch Extension Development Host
-3. The sample project (`tests/sample_project`) opens automatically
+3. The sample project (`tests/application`) opens automatically
 4. Open any Python file to see import validation in action
 
 The sample project includes intentional import violations for testing:

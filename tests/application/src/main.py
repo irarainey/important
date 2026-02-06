@@ -30,7 +30,7 @@ from models.sample_models import (
 )
 
 # ⚠️ VIOLATION: Import symbols from first-party module
-from sample_project import helpers
+from other_library import helpers
 
 # ✅ CORRECT: Standard import
 import logging

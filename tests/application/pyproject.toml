@@ -8,4 +8,4 @@ dependencies = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["sample_project"]
+known-first-party = ["other_library"]
