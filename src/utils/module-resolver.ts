@@ -99,6 +99,39 @@ export function isWorkspaceModule(modulePath: string, name: string): boolean {
 }
 
 /**
+ * Checks whether a dotted module path corresponds to a `.py` file in the
+ * workspace (as opposed to a package directory).
+ *
+ * When the module path resolves to a file, any names imported from it are
+ * definitively symbols (classes, functions, constants) — a `.py` file
+ * cannot contain sub-modules.
+ *
+ * For example, `isModuleFile("sample.service.config")` returns `true` when
+ * the workspace contains a file like `src/sample/service/config.py`.
+ */
+export function isModuleFile(moduleName: string): boolean {
+    if (!initialized) {
+        return false;
+    }
+
+    const moduleSlashPath = moduleName.replace(/\./g, '/');
+
+    for (const known of knownModulePaths) {
+        // Match if the cached path ends with the module's slash path
+        // and is either the full path or preceded by a /
+        // e.g. "src/sample/service/config" ends with "sample/service/config"
+        if (known === moduleSlashPath || known.endsWith(`/${moduleSlashPath}`)) {
+            // Ensure it's a file, not a package directory (__init__)
+            if (!known.endsWith('/__init__')) {
+                return true;
+            }
+        }
+    }
+
+    return false;
+}
+
+/**
  * Checks whether a module name corresponds to a local project module
  * by looking up its root package in the workspace filesystem.
  *

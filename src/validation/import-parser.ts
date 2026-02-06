@@ -26,6 +26,7 @@ export function parseImportLine(line: string, lineNumber: number): ImportStateme
             names,
             level: dots.length,
             line: lineNumber,
+            endLine: lineNumber,
             text: trimmed,
         };
     }
@@ -42,6 +43,7 @@ export function parseImportLine(line: string, lineNumber: number): ImportStateme
             names: modules,
             level: 0,
             line: lineNumber,
+            endLine: lineNumber,
             text: trimmed,
         };
     }
@@ -100,6 +102,7 @@ function parseMultilineImport(
             names,
             level: dots.length,
             line: startLine,
+            endLine,
             text: fullText.trim(),
         },
         endLine,

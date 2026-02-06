@@ -5,7 +5,7 @@
 src/**
 scripts/**
 node_modules/**
-examples/**
+tests/**
 .gitignore
 .git/**
 *.vsix

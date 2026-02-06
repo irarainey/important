@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { ImportStatement, ImportIssue, ImportCategory } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
 import { escapeRegex } from '../utils/text-utils';
-import { isWorkspaceModule, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
+import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
 /**
@@ -15,6 +15,16 @@ import { parseImports } from './import-parser';
  *  4. first-party — explicitly configured project modules
  *  5. local       — relative imports & workspace-detected modules
  */
+
+/**
+ * Builds a Range that spans the full extent of an import statement,
+ * correctly covering multi-line imports (those using parentheses).
+ */
+function importRange(document: vscode.TextDocument, imp: ImportStatement): vscode.Range {
+    const endLineText = document.lineAt(imp.endLine).text;
+    return new vscode.Range(imp.line, 0, imp.endLine, endLineText.length);
+}
+
 export function getImportCategory(importStmt: ImportStatement, documentUri?: vscode.Uri): ImportCategory {
     // __future__ imports always come first (Google style 3.13)
     if (importStmt.module === '__future__') {
@@ -44,9 +54,9 @@ export function getImportCategory(importStmt: ImportStatement, documentUri?: vsc
 }
 
 /**
- * Checks if a name is used anywhere in the document outside the given line.
+ * Checks if a name is used anywhere in the document outside the given line range.
  */
-function isNameUsedInDocument(document: vscode.TextDocument, name: string, excludeLine: number): boolean {
+function isNameUsedInDocument(document: vscode.TextDocument, name: string, excludeStartLine: number, excludeEndLine: number): boolean {
     const documentText = document.getText();
     const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
 
@@ -54,8 +64,8 @@ function isNameUsedInDocument(document: vscode.TextDocument, name: string, exclu
     while ((match = pattern.exec(documentText)) !== null) {
         const pos = document.positionAt(match.index);
 
-        // Skip if this is on the excluded line (import line)
-        if (pos.line === excludeLine) {
+        // Skip if this is within the excluded line range (import lines)
+        if (pos.line >= excludeStartLine && pos.line <= excludeEndLine) {
             continue;
         }
 
@@ -78,7 +88,7 @@ function isNameUsedInDocument(document: vscode.TextDocument, name: string, exclu
 function findUnusedNames(document: vscode.TextDocument, imp: ImportStatement): string[] {
     return imp.names.filter(name => {
         if (name === '*') return false;
-        return !isNameUsedInDocument(document, name, imp.line);
+        return !isNameUsedInDocument(document, name, imp.line, imp.endLine);
     });
 }
 
@@ -96,7 +106,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                 code: 'no-relative-imports',
                 message: 'Relative imports are not allowed (Google Python Style Guide). Use absolute imports instead.',
                 severity: vscode.DiagnosticSeverity.Warning,
-                range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                range: importRange(document, imp),
                 import: imp,
                 suggestedFix: imp.text.replace(/^from\s+\.+/, 'from '),
             });
@@ -108,7 +118,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                 code: 'no-wildcard-imports',
                 message: 'Wildcard imports are not allowed (Google Python Style Guide). Import specific names instead.',
                 severity: vscode.DiagnosticSeverity.Warning,
-                range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                range: importRange(document, imp),
                 import: imp,
             });
         }
@@ -119,7 +129,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                 code: 'no-multiple-imports',
                 message: 'Multiple imports on one line are not allowed (Google Python Style Guide). Use separate import statements.',
                 severity: vscode.DiagnosticSeverity.Warning,
-                range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                range: importRange(document, imp),
                 import: imp,
                 suggestedFix: imp.names.map(n => `import ${n}`).join('\n'),
             });
@@ -137,34 +147,46 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
         if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*') && !isStdlibModule(imp.module) && !isExempt) {
             const moduleParts = imp.module.split('.');
 
+            // Definitive filesystem check: if the module path resolves to
+            // an actual .py file, then everything imported from it is
+            // certainly a symbol — a .py file cannot contain sub-modules.
+            // Skip the heuristics and treat as a symbol import.
+            const confirmedSymbolImport = isModuleFile(imp.module);
+
             // Determine whether the imported names are symbols (classes,
             // functions, constants) rather than sub-modules.  We combine
             // checks – any one passing means "this is a module import,
             // don't flag it":
             //
-            //  1. Workspace filesystem: a matching .py file or package exists.
+            //  1. Workspace filesystem: a matching .py file or package exists
+            //     for the imported name itself.
             //  2. Usage pattern: the name is used with dot access (name.attr),
-            //     which strongly indicates module-like usage.  Combined with
-            //     snake_case naming (Python module convention) this is a
-            //     reliable signal.
+            //     which strongly indicates module-like usage.  Only applies
+            //     to snake_case names (Python module convention).
             const documentText = document.getText();
-            const isModuleImport = imp.names.some(name => {
+            const isModuleImport = !confirmedSymbolImport && imp.names.some(name => {
                 // Filesystem check: does a .py file or package exist?
                 if (moduleParts.length >= 2 && isWorkspaceModule(imp.module, name)) {
                     return true;
                 }
 
                 // Dot-access check: is the name used with dot access?
-                // For snake_case names this is a strong module signal.
-                const dotAccessPattern = new RegExp(`\\b${escapeRegex(name)}\\.\\w`, 'g');
-                let dotMatch;
-                while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
-                    const pos = document.positionAt(dotMatch.index);
-                    if (pos.line === imp.line) continue;
-                    const lineText = document.lineAt(pos.line).text;
-                    const beforeText = lineText.substring(0, pos.character);
-                    if (beforeText.includes('#')) continue;
-                    return true;
+                // Only applies to snake_case names (Python module convention).
+                // PascalCase names are almost certainly classes/types whose
+                // dot access (e.g. Config.from_dict()) should not suppress
+                // the violation.
+                const isPascalCase = /^[A-Z]/.test(name);
+                if (!isPascalCase) {
+                    const dotAccessPattern = new RegExp(`\\b${escapeRegex(name)}\\.\\w`, 'g');
+                    let dotMatch;
+                    while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
+                        const pos = document.positionAt(dotMatch.index);
+                        if (pos.line >= imp.line && pos.line <= imp.endLine) continue;
+                        const lineText = document.lineAt(pos.line).text;
+                        const beforeText = lineText.substring(0, pos.character);
+                        if (beforeText.includes('#')) continue;
+                        return true;
+                    }
                 }
                 return false;
             });
@@ -179,7 +201,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                         code: 'import-modules-not-symbols',
                         message: `Import modules, not symbols (Google Python Style Guide). Use 'from ${parentPackage} import ${moduleName}' and access as '${moduleName}.${imp.names[0]}'.`,
                         severity: vscode.DiagnosticSeverity.Information,
-                        range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                        range: importRange(document, imp),
                         import: imp,
                         suggestedFix: `from ${parentPackage} import ${moduleName}`,
                     });
@@ -189,7 +211,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                         code: 'import-modules-not-symbols',
                         message: `Import modules, not symbols (Google Python Style Guide). Use 'import ${imp.module}' and access as '${imp.module}.${imp.names[0]}'.`,
                         severity: vscode.DiagnosticSeverity.Information,
-                        range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                        range: importRange(document, imp),
                         import: imp,
                         suggestedFix: `import ${imp.module}`,
                     });
@@ -207,7 +229,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                     code: 'unused-import',
                     message: `Unused import: ${imp.type === 'import' ? imp.module : unusedNames.join(', ')}`,
                     severity: vscode.DiagnosticSeverity.Hint,
-                    range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                    range: importRange(document, imp),
                     import: imp,
                     suggestedFix: '', // Empty means delete the line
                 });
@@ -218,7 +240,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                     code: 'unused-import',
                     message: `Unused import: ${unusedNames.join(', ')}`,
                     severity: vscode.DiagnosticSeverity.Hint,
-                    range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                    range: importRange(document, imp),
                     import: imp,
                     suggestedFix: `from ${imp.module} import ${usedNames.join(', ')}`,
                 });
@@ -240,7 +262,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                 code: 'wrong-import-order',
                 message: `Import ordering violation: ${category} imports should come before ${lastCategory} imports (Google Python Style Guide).`,
                 severity: vscode.DiagnosticSeverity.Information,
-                range: new vscode.Range(imp.line, 0, imp.line, imp.text.length),
+                range: importRange(document, imp),
                 import: imp,
             });
         }
@@ -259,7 +281,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
 
         if (category !== currentGroupCategory) {
             // Check alphabetical order of previous group
-            checkAlphabeticalOrder(currentGroupImports, issues);
+            checkAlphabeticalOrder(document, currentGroupImports, issues);
             currentGroupCategory = category;
             currentGroupImports = [imp];
         } else {
@@ -267,7 +289,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
         }
     }
     // Check the last group
-    checkAlphabeticalOrder(currentGroupImports, issues);
+    checkAlphabeticalOrder(document, currentGroupImports, issues);
 
     return issues;
 }
@@ -279,7 +301,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
  *
  * This matches Ruff/isort default behaviour (force_sort_within_sections = false).
  */
-function checkAlphabeticalOrder(imports: ImportStatement[], issues: ImportIssue[]): void {
+function checkAlphabeticalOrder(document: vscode.TextDocument, imports: ImportStatement[], issues: ImportIssue[]): void {
     for (let i = 1; i < imports.length; i++) {
         const prev = imports[i - 1];
         const current = imports[i];
@@ -290,7 +312,7 @@ function checkAlphabeticalOrder(imports: ImportStatement[], issues: ImportIssue[
                 code: 'wrong-alphabetical-order',
                 message: `'import ${current.module}' should come before 'from' imports (import statements first).`,
                 severity: vscode.DiagnosticSeverity.Information,
-                range: new vscode.Range(current.line, 0, current.line, current.text.length),
+                range: importRange(document, current),
                 import: current,
             });
             continue;
@@ -306,7 +328,7 @@ function checkAlphabeticalOrder(imports: ImportStatement[], issues: ImportIssue[
                     code: 'wrong-alphabetical-order',
                     message: `Import '${current.module}' should come before '${prev.module}' (alphabetical ordering).`,
                     severity: vscode.DiagnosticSeverity.Information,
-                    range: new vscode.Range(current.line, 0, current.line, current.text.length),
+                    range: importRange(document, current),
                     import: current,
                 });
             }

@@ -255,7 +255,7 @@ important/
 │       ├── pyproject-reader.ts 		# Reads first-party config from pyproject.toml
 │       ├── stdlib-modules.ts   		# Python standard library module list
 │       └── text-utils.ts      			# Text/regex utilities
-├── examples/
+├── tests/
 │   └── sample_project/         		# Sample Python project for testing
 │       └── src/
 │           ├── main.py             	# Multiple issues: multi-imports, order, unused
@@ -277,7 +277,7 @@ important/
 
 1. Open the project in VS Code
 2. Press `F5` to launch Extension Development Host
-3. The sample project (`examples/sample_project`) opens automatically
+3. The sample project (`tests/sample_project`) opens automatically
 4. Open any Python file to see import validation in action
 
 The sample project includes intentional import violations for testing:

@@ -51,8 +51,8 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
                 while ((match = symbolRegex.exec(documentText)) !== null) {
                     const matchStart = document.positionAt(match.index);
 
-                    // Skip if this is on the import line itself
-                    if (matchStart.line === issue.import.line) {
+                    // Skip if this is on the import line(s) (including multi-line imports)
+                    if (matchStart.line >= issue.import.line && matchStart.line <= issue.import.endLine) {
                         continue;
                     }
 

@@ -23,6 +23,12 @@ from os.path import *
 # ⚠️ VIOLATION: Import symbols, not modules
 from models.sample_models import User, Config
 
+# ⚠️ VIOLATION: Import symbols, not modules (multi-line)
+from models.sample_models import (
+    Project,
+    Task,
+)
+
 # ⚠️ VIOLATION: Import symbols from first-party module
 from sample_project import helpers
 
@@ -56,6 +62,12 @@ def main() -> None:
     config = Config(debug=True, log_level="DEBUG")
     logger.info("User: %s", user)
     logger.info("Config: %s", config)
+
+    # ⚠️ Using imported classes directly (multi-line import violation)
+    project = Project(name="Demo", owner=user, description="Test project")
+    task = Task(title="Fix imports", project=project, assignee=user)
+    logger.info("Project: %s", project)
+    logger.info("Task: %s (completed=%s)", task.title, task.completed)
 
     # Use collections.abc
     logger.info("Is dict a Mapping? %s", issubclass(dict, abc.Mapping))

@@ -14,6 +14,8 @@ export interface ImportStatement {
     readonly level: number;
     /** The line number in the document (0-based) */
     readonly line: number;
+    /** The last line number of the import (same as `line` for single-line imports, 0-based) */
+    readonly endLine: number;
     /** The original text of the import line */
     readonly text: string;
 }

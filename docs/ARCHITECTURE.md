@@ -335,7 +335,7 @@ To support wildcard fixing for a new module:
 ## Testing
 
 1. Press `F5` to launch Extension Development Host
-2. Open `examples/sample_project/src/main.py`
+2. Open `tests/sample_project/src/main.py`
 3. Observe squiggly underlines for issues
 4. Run "Important: Fix Imports in This File"
 5. Verify all issues are fixed correctly

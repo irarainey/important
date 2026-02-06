@@ -33,3 +33,23 @@ class Config:
 def create_user(name: str, email: str) -> User:
     """Create a new user."""
     return User(id=1, name=name, email=email)
+
+
+@dataclasses.dataclass
+class Project:
+    """Represents a project."""
+
+    name: str
+    owner: User
+    description: str = ""
+    active: bool = True
+
+
+@dataclasses.dataclass
+class Task:
+    """Represents a task within a project."""
+
+    title: str
+    project: Project
+    assignee: typing.Optional[User] = None
+    completed: bool = False
