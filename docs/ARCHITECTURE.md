@@ -10,22 +10,22 @@ Important is a VS Code extension that validates Python import statements accordi
 
 ```
 src/
-├── extension.ts              # Entry point, lifecycle, event handlers
-├── types.ts                  # TypeScript interfaces and types
+├── extension.ts                    # Entry point, lifecycle, event handlers
+├── types.ts                        # TypeScript interfaces and types
 ├── providers/
-│   ├── code-action-provider.ts    # Quick fix suggestions
-│   └── hover-provider.ts          # Hover information for diagnostics
+│   ├── code-action-provider.ts     # Quick fix suggestions
+│   └── hover-provider.ts           # Hover information for diagnostics
 ├── validation/
-│   ├── import-parser.ts      # Parse Python import statements
-│   ├── import-validator.ts   # Validate against style rules
-│   └── diagnostics.ts        # Convert issues to VS Code diagnostics
+│   ├── import-parser.ts            # Parse Python import statements
+│   ├── import-validator.ts         # Validate against style rules
+│   └── diagnostics.ts              # Convert issues to VS Code diagnostics
 ├── fixes/
-│   ├── fix-imports.ts        # Main fix orchestration
-│   └── sort-imports.ts       # Sorting, deduplication, unused removal
+│   ├── fix-imports.ts              # Main fix orchestration
+│   └── sort-imports.ts             # Sorting, deduplication, unused removal
 └── utils/
-    ├── stdlib-modules.ts     # Python stdlib module list
-    ├── module-symbols.ts     # Known symbols for wildcard fixing
-    └── text-utils.ts         # Regex escaping, string/comment detection
+    ├── stdlib-modules.ts           # Python stdlib module list
+    ├── module-symbols.ts           # Known symbols for wildcard fixing
+    └── text-utils.ts               # Regex escaping, string/comment detection
 ```
 
 ## Data Flow
@@ -36,29 +36,29 @@ src/
 Document Change
       │
       ▼
-┌─────────────────┐
+┌────────────────────────┐
 │  scheduleValidation()  │  Debounced (50ms)
-└─────────────────┘
+└────────────────────────┘
       │
       ▼
-┌─────────────────┐
+┌───────────────────────┐
 │  parseImports()       │  Extract ImportStatement[]
-└─────────────────┘
+└───────────────────────┘
       │
       ▼
-┌─────────────────┐
+┌───────────────────────┐
 │  validateImports()    │  Apply rules, produce ImportIssue[]
-└─────────────────┘
+└───────────────────────┘
       │
       ▼
-┌─────────────────┐
+┌───────────────────────┐
 │  issuesToDiagnostics()│  Convert to vscode.Diagnostic[]
-└─────────────────┘
+└───────────────────────┘
       │
       ▼
-┌─────────────────┐
+┌───────────────────────┐
 │  DiagnosticCollection │  Display in editor
-└─────────────────┘
+└───────────────────────┘
 ```
 
 ### Fix Flow
@@ -67,9 +67,9 @@ Document Change
 "Fix Imports" Command
       │
       ▼
-┌─────────────────────┐
-│  fixAllImports()          │
-└─────────────────────┘
+┌────────────────────────┐
+│  fixAllImports()       │
+└────────────────────────┘
       │
       ├──► Fix wildcard imports (if known symbols exist)
       │    - Scan for used symbols from MODULE_SYMBOLS
