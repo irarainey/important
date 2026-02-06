@@ -4,7 +4,7 @@ import { issuesToDiagnostics } from './validation/diagnostics';
 import { ImportCodeActionProvider } from './providers/code-action-provider';
 import { ImportHoverProvider } from './providers/hover-provider';
 import { fixAllImports } from './fixes/fix-imports';
-import { initModuleResolver, disposeModuleResolver } from './utils/module-resolver';
+import { initModuleResolver, disposeModuleResolver, ensureModuleResolverReady } from './utils/module-resolver';
 import type { ImportantConfig } from './types';
 
 /** Diagnostic collection for import validation issues */
@@ -124,12 +124,14 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Validate already-open Python documents
-    for (const document of vscode.workspace.textDocuments) {
-        if (document.languageId === 'python') {
-            validateDocument(document);
+    // Validate already-open Python documents once the module resolver is ready
+    void ensureModuleResolverReady().then(() => {
+        for (const document of vscode.workspace.textDocuments) {
+            if (document.languageId === 'python') {
+                validateDocument(document);
+            }
         }
-    }
+    });
 }
 
 /**
@@ -218,15 +220,18 @@ function scheduleValidation(document: vscode.TextDocument): void {
 
 /**
  * Validates a document and updates diagnostics.
+ * Ensures the module resolver is ready before running validation
+ * so that import categorisation (stdlib / third-party / local) is accurate.
  */
 export function validateDocument(document: vscode.TextDocument): void {
     if (document.languageId !== 'python') {
         return;
     }
 
-    const issues: ImportIssue[] = validateImports(document);
-    const diagnostics = issuesToDiagnostics(issues);
-
-    diagnosticCollection.set(document.uri, diagnostics);
+    void ensureModuleResolverReady().then(() => {
+        const issues: ImportIssue[] = validateImports(document);
+        const diagnostics = issuesToDiagnostics(issues);
+        diagnosticCollection.set(document.uri, diagnostics);
+    });
 }
 

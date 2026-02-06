@@ -3,6 +3,7 @@ import { validateImports } from '../validation/import-validator';
 import { isInStringOrComment, escapeRegex } from '../utils/text-utils';
 import { getModuleSymbols, hasModuleSymbols } from '../utils/module-symbols';
 import { sortImportsInDocument } from './sort-imports';
+import { ensureModuleResolverReady } from '../utils/module-resolver';
 
 /**
  * Fixes all import issues in the current document.
@@ -10,6 +11,9 @@ import { sortImportsInDocument } from './sort-imports';
  * @returns Number > 0 if any fixes were applied, 0 if nothing to fix
  */
 export async function fixAllImports(editor: vscode.TextEditor): Promise<number> {
+    // Ensure the module resolver is ready so category detection works.
+    await ensureModuleResolverReady();
+
     const document = editor.document;
     const issues = validateImports(document);
     let madeChanges = false;

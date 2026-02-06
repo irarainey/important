@@ -15,6 +15,9 @@ let knownModulePaths = new Set<string>();
 /** Whether the initial scan has completed. */
 let initialized = false;
 
+/** Resolves when the initial scan completes. */
+let initPromise: Promise<void> | undefined;
+
 /** File-system watcher disposable. */
 let watcher: vscode.Disposable | undefined;
 
@@ -26,8 +29,10 @@ let watcher: vscode.Disposable | undefined;
  * tracked automatically via a workspace file-system watcher.
  */
 export async function initModuleResolver(context: vscode.ExtensionContext): Promise<void> {
-    await rebuildCache();
-    initialized = true;
+    initPromise = rebuildCache().then(() => {
+        initialized = true;
+    });
+    await initPromise;
 
     // Watch for Python file creation / deletion to keep the cache current.
     const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.py');
@@ -37,6 +42,20 @@ export async function initModuleResolver(context: vscode.ExtensionContext): Prom
 
     watcher = fileWatcher;
     context.subscriptions.push(fileWatcher);
+}
+
+/**
+ * Returns a promise that resolves once the initial workspace scan is
+ * complete.  Safe to call multiple times — returns immediately when
+ * already initialised.
+ */
+export async function ensureModuleResolverReady(): Promise<void> {
+    if (initialized) {
+        return;
+    }
+    if (initPromise) {
+        await initPromise;
+    }
 }
 
 /**
@@ -71,6 +90,38 @@ export function isWorkspaceModule(modulePath: string, name: string): boolean {
 }
 
 /**
+ * Checks whether a module name corresponds to a local project module
+ * by looking up its root package in the workspace filesystem.
+ *
+ * For example, given `from models.sample_models import User`, calling
+ * `isLocalModule("models.sample_models")` returns `true` when the
+ * workspace contains `src/models/sample_models.py` (or similar).
+ *
+ * This enables correct import grouping: stdlib → third-party → local,
+ * matching the ordering that Ruff / isort enforce.
+ */
+export function isLocalModule(moduleName: string): boolean {
+    if (!initialized) {
+        return false;
+    }
+
+    const rootModule = moduleName.split('.')[0];
+
+    for (const known of knownModulePaths) {
+        // Split the workspace-relative path into segments and check for
+        // an exact segment match against the root module name.
+        // e.g. "src/models/sample_models" has segments ["src","models","sample_models"]
+        //      → matches rootModule "models"
+        const segments = known.split('/');
+        if (segments.includes(rootModule)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+/**
  * Disposes the file watcher and clears the cache.
  */
 export function disposeModuleResolver(): void {
@@ -78,13 +129,20 @@ export function disposeModuleResolver(): void {
     watcher = undefined;
     knownModulePaths.clear();
     initialized = false;
+    initPromise = undefined;
 }
+
+/**
+ * Glob pattern that excludes directories containing third-party or
+ * environment packages.  These should never be treated as local modules.
+ */
+const EXCLUDE_PATTERN = '{**/node_modules/**,**/.venv/**,**/venv/**,**/.env/**,**/env/**,**/__pypackages__/**,**/.tox/**,**/.nox/**,**/.pyenv/**,**/site-packages/**}';
 
 /**
  * Rebuilds the module-path cache from all `.py` files in the workspace.
  */
 async function rebuildCache(): Promise<void> {
-    const files = await vscode.workspace.findFiles('**/*.py', '**/node_modules/**');
+    const files = await vscode.workspace.findFiles('**/*.py', EXCLUDE_PATTERN);
     const paths = new Set<string>();
 
     for (const file of files) {

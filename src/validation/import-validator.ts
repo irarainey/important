@@ -2,11 +2,16 @@ import * as vscode from 'vscode';
 import type { ImportStatement, ImportIssue, ImportCategory } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
 import { escapeRegex } from '../utils/text-utils';
-import { isWorkspaceModule } from '../utils/module-resolver';
+import { isWorkspaceModule, isLocalModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
 /**
  * Determines the category of an import for grouping purposes.
+ *
+ * Categories (matching Ruff / isort ordering):
+ *  1. stdlib  — Python standard library modules
+ *  2. third-party — installed packages (pip, etc.)
+ *  3. local — modules that exist within the workspace filesystem
  */
 export function getImportCategory(importStmt: ImportStatement): ImportCategory {
     // Relative imports are always local
@@ -18,8 +23,11 @@ export function getImportCategory(importStmt: ImportStatement): ImportCategory {
         return 'stdlib';
     }
 
-    // For now, treat everything else as third-party
-    // A full implementation would check against the project structure
+    // Check whether the root package exists in the workspace filesystem
+    if (isLocalModule(importStmt.module)) {
+        return 'local';
+    }
+
     return 'third-party';
 }
 

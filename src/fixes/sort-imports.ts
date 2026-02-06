@@ -3,6 +3,7 @@ import type { ImportCategory } from '../types';
 import { parseImports } from '../validation/import-parser';
 import { getImportCategory } from '../validation/import-validator';
 import { escapeRegex } from '../utils/text-utils';
+import { ensureModuleResolverReady } from '../utils/module-resolver';
 
 /**
  * Checks if a name is used anywhere in the document outside import lines.
@@ -35,6 +36,10 @@ interface NormalizedImport {
  * Expands multi-imports, removes unused, groups by category, sorts alphabetically.
  */
 export async function sortImportsInDocument(document: vscode.TextDocument): Promise<boolean> {
+    // Ensure the module resolver cache is populated so that
+    // getImportCategory can distinguish local from third-party.
+    await ensureModuleResolverReady();
+
     const imports = parseImports(document);
     if (imports.length === 0) {
         return false;

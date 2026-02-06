@@ -127,11 +127,18 @@ interface ImportIssue {
 
 ### ImportCategory
 
-Categorizes imports for grouping:
+Categorizes imports for grouping (matching Ruff / isort ordering):
 
 ```typescript
 type ImportCategory = "stdlib" | "third-party" | "local";
 ```
+
+Category detection (`getImportCategory`):
+
+1. **Relative imports** (leading dots) → always `local`
+2. **stdlib** — matched against a built-in list of Python 3.11+ standard library module names
+3. **local** — the module's root package exists in the workspace filesystem (via `isLocalModule`)
+4. **third-party** — everything else (installed packages)
 
 ## Validation Rules
 
