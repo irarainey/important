@@ -1,7 +1,8 @@
 import * as vscode from 'vscode';
 import type { ImportStatement, ImportIssue, ImportCategory } from '../types';
+import { CATEGORY_ORDER } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
-import { escapeRegex } from '../utils/text-utils';
+import { escapeRegex, isNameUsedOutsideLines } from '../utils/text-utils';
 import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
@@ -57,41 +58,24 @@ export function getImportCategory(importStmt: ImportStatement, documentUri?: vsc
 }
 
 /**
- * Checks if a name is used anywhere in the document outside the given line range.
+ * Builds a set of line numbers covered by an import statement.
  */
-function isNameUsedInDocument(document: vscode.TextDocument, name: string, excludeStartLine: number, excludeEndLine: number): boolean {
-    const documentText = document.getText();
-    const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
-
-    let match;
-    while ((match = pattern.exec(documentText)) !== null) {
-        const pos = document.positionAt(match.index);
-
-        // Skip if this is within the excluded line range (import lines)
-        if (pos.line >= excludeStartLine && pos.line <= excludeEndLine) {
-            continue;
-        }
-
-        // Skip if in a comment
-        const lineText = document.lineAt(pos.line).text;
-        const beforeMatch = lineText.substring(0, pos.character);
-        if (beforeMatch.includes('#')) {
-            continue;
-        }
-
-        return true;
+function importLineSet(imp: ImportStatement): Set<number> {
+    const lines = new Set<number>();
+    for (let line = imp.line; line <= imp.endLine; line++) {
+        lines.add(line);
     }
-
-    return false;
+    return lines;
 }
 
 /**
  * Finds names from an import statement that are not used in the document.
  */
-function findUnusedNames(document: vscode.TextDocument, imp: ImportStatement): string[] {
+function findUnusedNames(document: vscode.TextDocument, documentText: string, imp: ImportStatement): string[] {
+    const excludeLines = importLineSet(imp);
     return imp.names.filter(name => {
         if (name === '*') return false;
-        return !isNameUsedInDocument(document, name, imp.line, imp.endLine);
+        return !isNameUsedOutsideLines(document, documentText, name, excludeLines);
     });
 }
 
@@ -223,7 +207,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
 
         // Rule 7: Check for unused imports
         // Skip __future__ imports — their names are directives, not symbols
-        const unusedNames = imp.module === '__future__' ? [] : findUnusedNames(document, imp);
+        const unusedNames = imp.module === '__future__' ? [] : findUnusedNames(document, documentText, imp);
         if (unusedNames.length > 0 && !imp.names.includes('*')) {
             if (unusedNames.length === imp.names.length) {
                 // All names are unused - entire import is unused
@@ -251,13 +235,12 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
     }
 
     // Rule 5: Check import ordering (__future__ → stdlib → third-party → first-party → local)
-    const categoryOrder: ImportCategory[] = ['future', 'stdlib', 'third-party', 'first-party', 'local'];
     let lastCategory: ImportCategory | undefined;
 
     for (const imp of imports) {
         const category = getImportCategory(imp, document.uri);
-        const currentCategoryIndex = categoryOrder.indexOf(category);
-        const lastCategoryIndex = lastCategory ? categoryOrder.indexOf(lastCategory) : -1;
+        const currentCategoryIndex = CATEGORY_ORDER.indexOf(category);
+        const lastCategoryIndex = lastCategory ? CATEGORY_ORDER.indexOf(lastCategory) : -1;
 
         if (lastCategory && currentCategoryIndex < lastCategoryIndex) {
             issues.push({

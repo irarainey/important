@@ -62,6 +62,9 @@ export type ImportIssueCode =
  */
 export type ImportCategory = 'future' | 'stdlib' | 'third-party' | 'first-party' | 'local';
 
+/** Canonical ordering of import categories (Google style + first-party). */
+export const CATEGORY_ORDER: readonly ImportCategory[] = ['future', 'stdlib', 'third-party', 'first-party', 'local'] as const;
+
 /**
  * Associates a set of first-party module names with the workspace-relative
  * directory that contains the `pyproject.toml` they were read from.

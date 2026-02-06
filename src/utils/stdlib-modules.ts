@@ -118,7 +118,7 @@ const STDLIB_SUBMODULES: readonly string[] = [
 /**
  * Set of all standard library modules for fast lookup.
  */
-export const STDLIB_MODULES: ReadonlySet<string> = new Set([
+const STDLIB_MODULES: ReadonlySet<string> = new Set([
     ...STDLIB_MODULE_LIST,
     ...STDLIB_SUBMODULES,
 ]);

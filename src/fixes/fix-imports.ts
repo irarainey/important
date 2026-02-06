@@ -98,7 +98,7 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
     }
 
     // Second: Apply symbol reference updates for import-modules-not-symbols
-    // This must happen before we modify the imports
+    // This must happen before we sort the imports
     const symbolIssues = issues.filter(i => i.code === 'import-modules-not-symbols');
     if (symbolIssues.length > 0) {
         const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
@@ -138,7 +138,7 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Second: Sort imports (also removes unused, expands multi-imports, fixes order)
+    // Third: Sort imports (also removes unused, expands multi-imports, fixes order)
     // Iterate until stable (max 5 iterations for safety)
     for (let i = 0; i < 5; i++) {
         await new Promise(resolve => setTimeout(resolve, 100));

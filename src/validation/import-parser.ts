@@ -4,7 +4,7 @@ import type { ImportStatement } from '../types';
 /**
  * Parses a single line of Python code to extract import information.
  */
-export function parseImportLine(line: string, lineNumber: number): ImportStatement | undefined {
+function parseImportLine(line: string, lineNumber: number): ImportStatement | undefined {
     const trimmed = line.trim();
 
     // Skip empty lines, comments, and non-import statements

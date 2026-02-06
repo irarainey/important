@@ -1,3 +1,5 @@
+import * as vscode from 'vscode';
+
 /**
  * Text utility functions for import validation.
  */
@@ -7,6 +9,40 @@
  */
 export function escapeRegex(str: string): string {
     return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Checks if a name is used anywhere in the document outside a set of
+ * excluded lines (typically the import lines themselves).
+ */
+export function isNameUsedOutsideLines(
+    document: vscode.TextDocument,
+    documentText: string,
+    name: string,
+    excludeLines: Set<number>,
+): boolean {
+    const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
+
+    let match;
+    while ((match = pattern.exec(documentText)) !== null) {
+        const pos = document.positionAt(match.index);
+
+        // Skip if this is on an excluded line (import lines)
+        if (excludeLines.has(pos.line)) {
+            continue;
+        }
+
+        // Skip if in a string or comment
+        const lineText = document.lineAt(pos.line).text;
+        const beforeMatch = lineText.substring(0, pos.character);
+        if (isInStringOrComment(beforeMatch)) {
+            continue;
+        }
+
+        return true;
+    }
+
+    return false;
 }
 
 /**

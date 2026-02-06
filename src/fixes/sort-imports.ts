@@ -1,28 +1,10 @@
 import * as vscode from 'vscode';
 import type { ImportCategory } from '../types';
+import { CATEGORY_ORDER } from '../types';
 import { parseImports } from '../validation/import-parser';
 import { getImportCategory } from '../validation/import-validator';
-import { escapeRegex } from '../utils/text-utils';
+import { isNameUsedOutsideLines } from '../utils/text-utils';
 import { ensureModuleResolverReady } from '../utils/module-resolver';
-
-/**
- * Checks if a name is used anywhere in the document outside import lines.
- */
-function isNameUsed(documentText: string, document: vscode.TextDocument, name: string, importLines: Set<number>): boolean {
-    const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
-    let match;
-    while ((match = pattern.exec(documentText)) !== null) {
-        const pos = document.positionAt(match.index);
-        // Skip if on an import line
-        if (importLines.has(pos.line)) continue;
-        // Skip if in a comment
-        const lineText = document.lineAt(pos.line).text;
-        const beforeMatch = lineText.substring(0, pos.character);
-        if (beforeMatch.includes('#')) continue;
-        return true;
-    }
-    return false;
-}
 
 interface NormalizedImport {
     module: string;
@@ -50,20 +32,17 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
     // Collect all import line numbers for usage checking
     const importLineSet = new Set<number>();
     for (const imp of imports) {
-        const lineCount = imp.text.split('\n').length;
-        for (let i = 0; i < lineCount; i++) {
-            importLineSet.add(imp.line + i);
+        for (let line = imp.line; line <= imp.endLine; line++) {
+            importLineSet.add(line);
         }
     }
 
     // Find the contiguous import block range
-    const importLines = imports.map(i => i.line);
-    const firstImportLine = Math.min(...importLines);
+    const firstImportLine = Math.min(...imports.map(i => i.line));
     let lastImportLine = firstImportLine;
     for (const imp of imports) {
-        const endLine = imp.line + (imp.text.split('\n').length - 1);
-        if (endLine > lastImportLine) {
-            lastImportLine = endLine;
+        if (imp.endLine > lastImportLine) {
+            lastImportLine = imp.endLine;
         }
     }
 
@@ -76,7 +55,7 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
         if (imp.type === 'import') {
             // Expand 'import os, sys' into separate imports
             for (const name of imp.names) {
-                if (isNameUsed(documentText, document, name, importLineSet)) {
+                if (isNameUsedOutsideLines(document, documentText, name, importLineSet)) {
                     normalized.push({
                         module: name,
                         type: 'import',
@@ -105,7 +84,7 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
         } else {
             // Filter to only used names
             const usedNames = imp.names.filter(name =>
-                isNameUsed(documentText, document, name, importLineSet)
+                isNameUsedOutsideLines(document, documentText, name, importLineSet)
             );
             if (usedNames.length > 0) {
                 normalized.push({
@@ -166,10 +145,9 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
     }
 
     // Build the sorted import text
-    const categoryOrder: ImportCategory[] = ['future', 'stdlib', 'third-party', 'first-party', 'local'];
     const sortedBlocks: string[] = [];
 
-    for (const category of categoryOrder) {
+    for (const category of CATEGORY_ORDER) {
         const categoryImports = groups[category];
         if (categoryImports.length > 0) {
             const lines = categoryImports.map(imp => {
