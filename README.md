@@ -4,7 +4,7 @@
   <img src="resources/images/logo.png" alt="Important" width="128" />
 </p>
 
-A Visual Studio Code extension that validates and formats Python import statements according to the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#313-imports-formatting). It provides real-time diagnostics as you type, highlights unused imports, and can automatically fix all issues including wildcard imports, incorrect ordering, and symbol imports. The extension scans your code to understand which imports are actually used and applies intelligent fixes that update both the import statements and all related symbol references throughout your file.
+A Visual Studio Code extension that validates and formats Python import statements according to the [Google Python Style Guide](https://google.github.io/styleguide/pyguide.html#313-imports-formatting) and [PEP 8](https://peps.python.org/pep-0008/#imports), with [Ruff](https://docs.astral.sh/ruff/)-compatible first-party module support. It provides real-time diagnostics as you type, highlights unused imports, and can automatically fix all issues including wildcard imports, incorrect ordering, and symbol imports. The extension scans your code to understand which imports are actually used and applies intelligent fixes that update both the import statements and all related symbol references throughout your file.
 
 ## Features
 
@@ -27,7 +27,7 @@ A Visual Studio Code extension that validates and formats Python import statemen
 | Import modules not symbols | `from fastmcp import Cls` → `import fastmcp` + `fastmcp.Cls` | ✅       |
 | Unused imports             | Imports not referenced in code are removed                   | ✅       |
 | Duplicate imports          | Multiple identical imports are merged                        | ✅       |
-| Correct ordering           | stdlib → third-party → local                                 | ✅       |
+| Correct ordering           | `__future__` → stdlib → third-party → first-party → local    | ✅       |
 | Alphabetical order         | Within each group                                            | ✅       |
 
 ### Example
@@ -62,9 +62,12 @@ user = user.User()
 
 ### Commands
 
-- **Important: Fix Imports in This File** - Apply all available fixes, remove unused imports, and sort
+| Command                                 | Shortcut                                               | Description                                                                           |
+| --------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------- |
+| **Important: Fix Imports in This File** | `Ctrl+K, Ctrl+Shift+F` (`Cmd+K, Cmd+Shift+F` on macOS) | Apply all available fixes, remove unused imports, and sort                            |
+| **Important: Show First-Party Modules** | —                                                      | Display the resolved list of first-party modules (from settings and `pyproject.toml`) |
 
-Access via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-click context menu.
+Also available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-click context menu.
 
 ## Installation
 
@@ -93,11 +96,13 @@ code --install-extension important-0.1.3.vsix
 
 Configure via VS Code Settings (`Ctrl+,` / `Cmd+,`):
 
-| Setting                    | Type    | Default    | Description                                              |
-| -------------------------- | ------- | ---------- | -------------------------------------------------------- |
-| `important.validateOnSave` | boolean | `true`     | Validate imports when saving                             |
-| `important.validateOnType` | boolean | `true`     | Validate imports as you type and after formatter changes |
-| `important.styleGuide`     | string  | `"google"` | Style guide to use                                       |
+| Setting                           | Type     | Default    | Description                                                                     |
+| --------------------------------- | -------- | ---------- | ------------------------------------------------------------------------------- |
+| `important.validateOnSave`        | boolean  | `true`     | Validate imports when saving                                                    |
+| `important.validateOnType`        | boolean  | `true`     | Validate imports as you type and after formatter changes                        |
+| `important.styleGuide`            | string   | `"google"` | Style guide to use                                                              |
+| `important.knownFirstParty`       | string[] | `[]`       | Module names to treat as first-party imports (e.g. `["myproject"]`)             |
+| `important.readFromPyprojectToml` | boolean  | `true`     | Auto-read `known-first-party` from `[tool.ruff.lint.isort]` in `pyproject.toml` |
 
 ### Example settings.json
 
@@ -105,7 +110,9 @@ Configure via VS Code Settings (`Ctrl+,` / `Cmd+,`):
 {
 	"important.validateOnSave": true,
 	"important.validateOnType": true,
-	"important.styleGuide": "google"
+	"important.styleGuide": "google",
+	"important.knownFirstParty": ["myproject", "mypackage"],
+	"important.readFromPyprojectToml": true
 }
 ```
 
@@ -113,12 +120,53 @@ Configure via VS Code Settings (`Ctrl+,` / `Cmd+,`):
 
 The "Fix Imports" command includes automatic import sorting that:
 
-- Groups imports: stdlib → third-party → local
-- Sorts alphabetically within each group
+- Groups imports into 5 categories: `__future__` → stdlib → third-party → first-party → local
+- Sorts alphabetically within each group (pure lexicographic, ignoring case)
 - Splits multi-imports (`import os, sys`) into separate lines
-- Removes unused imports
+- Removes unused imports (preserves `__future__` directives)
 - Merges duplicate imports
 - Fixes wildcard imports by converting to qualified module access
+
+### First-Party Module Support
+
+First-party modules are project-specific packages that should be grouped between third-party and local imports, matching [Ruff's isort](https://docs.astral.sh/ruff/settings/#lint_isort_known-first-party) behaviour.
+
+**Automatic detection from `pyproject.toml`** (enabled by default):
+
+If your project has a `pyproject.toml` with a Ruff isort configuration, the extension automatically reads it:
+
+```toml
+[tool.ruff.lint.isort]
+known-first-party = ["myproject", "mypackage"]
+```
+
+The extension watches for `pyproject.toml` changes and reloads automatically.
+
+**Manual configuration** via VS Code settings:
+
+```json
+{
+	"important.knownFirstParty": ["myproject", "mypackage"]
+}
+```
+
+When both sources are active, values are merged (union of config + TOML).
+
+**Resulting import order:**
+
+```python
+from __future__ import annotations
+
+import os
+import sys
+
+import requests
+
+from myproject import config
+from myproject.models import base
+
+from . import utils
+```
 
 ### Wildcard Import Fixing
 
@@ -188,37 +236,39 @@ The package will be created in the `package/` directory.
 ```
 important/
 ├── src/
-│   ├── extension.ts            # Extension entry point & lifecycle
-│   ├── types.ts                # TypeScript type definitions
-│   ├── providers/              # VS Code language providers
-│   │   ├── code-action-provider.ts  # Quick fix code actions
-│   │   └── hover-provider.ts        # Hover information for diagnostics
-│   ├── validation/             # Import validation logic
-│   │   ├── import-parser.ts    # Import statement parsing
-│   │   ├── import-validator.ts # Validation rules
-│   │   └── diagnostics.ts      # Diagnostic conversion
-│   ├── fixes/                  # Import fixing logic
-│   │   ├── fix-imports.ts      # Fix all imports command
-│   │   └── sort-imports.ts     # Import sorting
-│   └── utils/                  # Utility modules
-│       ├── module-resolver.ts  # Workspace Python module detection
-│       ├── module-symbols.ts   # Known symbols for wildcard import fixing
-│       ├── stdlib-modules.ts   # Python standard library module list
-│       └── text-utils.ts       # Text/regex utilities
+│   ├── extension.ts            		# Extension entry point & lifecycle
+│   ├── types.ts                		# TypeScript type definitions
+│   ├── providers/              		# VS Code language providers
+│   │   ├── code-action-provider.ts  	# Quick fix code actions
+│   │   └── hover-provider.ts        	# Hover information for diagnostics
+│   ├── validation/              		# Import validation logic
+│   │   ├── import-parser.ts        	# Import statement parsing
+│   │   ├── import-validator.ts     	# Validation rules
+│   │   └── diagnostics.ts          	# Diagnostic conversion
+│   ├── fixes/                   		# Import fixing logic
+│   │   ├── fix-imports.ts          	# Fix all imports command
+│   │   └── sort-imports.ts         	# Import sorting
+│   └── utils/                  		# Utility modules
+│       ├── logger.ts          			# Output channel logging
+│       ├── module-resolver.ts  		# Workspace Python module detection
+│       ├── module-symbols.ts   		# Known symbols for wildcard import fixing
+│       ├── pyproject-reader.ts 		# Reads first-party config from pyproject.toml
+│       ├── stdlib-modules.ts   		# Python standard library module list
+│       └── text-utils.ts      			# Text/regex utilities
 ├── examples/
-│   └── sample_project/         # Sample Python project for testing
+│   └── sample_project/         		# Sample Python project for testing
 │       └── src/
-│           ├── main.py             # Multiple issues: multi-imports, order, unused
-│           ├── helpers/helpers.py  # Parent relative import, multiple imports
-│           ├── models/sample_models.py  # Clean file (no issues)
-│           └── utils/utils.py      # Relative imports, symbol imports
+│           ├── main.py             	# Multiple issues: multi-imports, order, unused
+│           ├── helpers/helpers.py  	# Parent relative import, multiple imports
+│           ├── models/sample_models.py	# Clean file (no issues)
+│           └── utils/utils.py      	# Relative imports, symbol imports
 ├── docs/
-│   └── ARCHITECTURE.md         # Developer documentation
-├── CHANGELOG.md                # Release changelog
-├── dist/                       # Compiled output (generated)
-├── package.json                # Extension manifest & dependencies
-├── tsconfig.json               # TypeScript configuration
-└── eslint.config.mjs           # ESLint configuration
+│   └── ARCHITECTURE.md        			# Developer documentation
+│   └── CHANGELOG.md               		# Release changelog
+├── dist/                      			# Compiled output (generated)
+├── package.json               			# Extension manifest & dependencies
+├── tsconfig.json              			# TypeScript configuration
+└── eslint.config.mjs          			# ESLint configuration
 ```
 
 ## Development
@@ -265,3 +315,5 @@ See [LICENSE.md](LICENSE.md) for details.
 
 - [Repository](https://github.com/irarainey/important)
 - [Google Python Style Guide - Imports](https://google.github.io/styleguide/pyguide.html#313-imports-formatting)
+- [PEP 8 - Imports](https://peps.python.org/pep-0008/#imports)
+- [Ruff isort - known-first-party](https://docs.astral.sh/ruff/settings/#lint_isort_known-first-party)

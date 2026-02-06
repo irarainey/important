@@ -4,8 +4,10 @@ import { issuesToDiagnostics } from './validation/diagnostics';
 import { ImportCodeActionProvider } from './providers/code-action-provider';
 import { ImportHoverProvider } from './providers/hover-provider';
 import { fixAllImports } from './fixes/fix-imports';
-import { initModuleResolver, disposeModuleResolver, ensureModuleResolverReady } from './utils/module-resolver';
-import type { ImportantConfig } from './types';
+import { initModuleResolver, disposeModuleResolver, ensureModuleResolverReady, setFirstPartyModules, getFirstPartyModules } from './utils/module-resolver';
+import { readFirstPartyFromPyproject } from './utils/pyproject-reader';
+import { createOutputChannel, log } from './utils/logger';
+import type { ImportantConfig, ImportIssue } from './types';
 
 /** Diagnostic collection for import validation issues */
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -17,8 +19,17 @@ let configDependentDisposables: vscode.Disposable[] = [];
  * Activates the Important extension.
  */
 export function activate(context: vscode.ExtensionContext): void {
+    // Create the output channel for logging
+    context.subscriptions.push(createOutputChannel());
+    log('Important extension activating…');
+
     // Scan workspace for Python modules (async, non-blocking)
+    log('Initialising module resolver — scanning workspace for Python files…');
     void initModuleResolver(context);
+
+    // Load first-party module configuration (async, non-blocking)
+    log('Loading first-party module configuration…');
+    void loadFirstPartyModules();
 
     // Create diagnostic collection
     diagnosticCollection = vscode.languages.createDiagnosticCollection('important');
@@ -43,6 +54,14 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Register commands
     context.subscriptions.push(
+        vscode.commands.registerCommand('important.showFirstPartyModules', () => {
+            const modules = getFirstPartyModules();
+            if (modules.length === 0) {
+                vscode.window.showInformationMessage('No first-party modules configured.');
+            } else {
+                vscode.window.showInformationMessage(`First-party modules: ${modules.join(', ')}`);
+            }
+        }),
         vscode.commands.registerCommand('important.fixImports', async () => {
             const editor = vscode.window.activeTextEditor;
             if (!editor || editor.document.languageId !== 'python') {
@@ -57,7 +76,10 @@ export function activate(context: vscode.ExtensionContext): void {
             validateDocument(editor.document);
 
             if (changesMade === 0) {
+                log('No import issues to fix.');
                 vscode.window.showInformationMessage('No import issues to fix.');
+            } else {
+                log('Import fixes applied successfully.');
             }
         })
     );
@@ -118,26 +140,44 @@ export function activate(context: vscode.ExtensionContext): void {
     context.subscriptions.push(
         vscode.workspace.onDidChangeConfiguration(event => {
             if (event.affectsConfiguration('important')) {
+                log('Configuration changed — reloading…');
                 // Re-register handlers with new configuration
                 registerConfigDependentHandlers();
+                // Reload first-party modules in case the setting changed
+                void loadFirstPartyModules();
             }
         })
     );
 
     // Validate already-open Python documents once the module resolver is ready
     void ensureModuleResolverReady().then(() => {
-        for (const document of vscode.workspace.textDocuments) {
-            if (document.languageId === 'python') {
+        const pythonDocs = vscode.workspace.textDocuments.filter(d => d.languageId === 'python');
+        if (pythonDocs.length > 0) {
+            log(`Module resolver ready — validating ${pythonDocs.length} open Python document(s)…`);
+            for (const document of pythonDocs) {
                 validateDocument(document);
             }
+        } else {
+            log('Module resolver ready — no open Python documents to validate.');
         }
     });
+
+    // Watch for pyproject.toml changes to auto-reload first-party modules
+    const tomlWatcher = vscode.workspace.createFileSystemWatcher('**/pyproject.toml');
+    tomlWatcher.onDidChange(() => { log('pyproject.toml changed — reloading first-party modules…'); void loadFirstPartyModules(); });
+    tomlWatcher.onDidCreate(() => { log('pyproject.toml created — loading first-party modules…'); void loadFirstPartyModules(); });
+    tomlWatcher.onDidDelete(() => { log('pyproject.toml deleted — reloading first-party modules…'); void loadFirstPartyModules(); });
+    context.subscriptions.push(tomlWatcher);
+
+    log('Important extension activated.');
 }
 
 /**
  * Deactivates the extension.
  */
 export function deactivate(): void {
+    log('Important extension deactivating…');
+
     // Clear all pending validation timers
     pendingValidations.forEach(timer => clearTimeout(timer));
     pendingValidations.clear();
@@ -159,7 +199,44 @@ function getConfig(): ImportantConfig {
         validateOnSave: config.get<boolean>('validateOnSave', true),
         validateOnType: config.get<boolean>('validateOnType', true),
         styleGuide: config.get<'google'>('styleGuide', 'google'),
+        knownFirstParty: config.get<string[]>('knownFirstParty', []),
+        readFromPyprojectToml: config.get<boolean>('readFromPyprojectToml', true),
     };
+}
+
+/**
+ * Loads first-party module names from the extension config and,
+ * optionally, from `pyproject.toml`.  Merges both sources and
+ * updates the module resolver.
+ */
+async function loadFirstPartyModules(): Promise<void> {
+    const config = getConfig();
+
+    const modules = new Set<string>(config.knownFirstParty);
+
+    if (config.knownFirstParty.length > 0) {
+        log(`First-party modules from settings: ${config.knownFirstParty.join(', ')}`);
+    }
+
+    if (config.readFromPyprojectToml) {
+        const fromToml = await readFirstPartyFromPyproject();
+        if (fromToml.length > 0) {
+            log(`First-party modules from pyproject.toml: ${fromToml.join(', ')}`);
+        }
+        for (const m of fromToml) {
+            modules.add(m);
+        }
+    } else {
+        log('pyproject.toml reading is disabled.');
+    }
+
+    const all = [...modules];
+    if (all.length > 0) {
+        log(`Resolved first-party modules: ${all.join(', ')}`);
+    } else {
+        log('No first-party modules configured.');
+    }
+    setFirstPartyModules(all);
 }
 
 /** Pending validation timers keyed by document URI */

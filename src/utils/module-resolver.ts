@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { log } from './logger';
 
 /**
  * Resolves Python module paths against the workspace filesystem.
@@ -11,6 +12,9 @@ import * as vscode from 'vscode';
 
 /** Cached set of workspace-relative module paths (e.g. `mcp_servers/data/company_data`). */
 let knownModulePaths = new Set<string>();
+
+/** Set of explicitly configured first-party module root names. */
+let firstPartyModules = new Set<string>();
 
 /** Whether the initial scan has completed. */
 let initialized = false;
@@ -31,6 +35,7 @@ let watcher: vscode.Disposable | undefined;
 export async function initModuleResolver(context: vscode.ExtensionContext): Promise<void> {
     initPromise = rebuildCache().then(() => {
         initialized = true;
+        log(`Module resolver initialised — ${knownModulePaths.size} module path(s) cached.`);
     });
     await initPromise;
 
@@ -128,8 +133,35 @@ export function disposeModuleResolver(): void {
     watcher?.dispose();
     watcher = undefined;
     knownModulePaths.clear();
+    firstPartyModules.clear();
     initialized = false;
     initPromise = undefined;
+}
+
+/**
+ * Sets the known first-party module root names.
+ *
+ * Called from the extension activation path after merging config values
+ * and any entries discovered in `pyproject.toml`.
+ */
+export function setFirstPartyModules(modules: readonly string[]): void {
+    firstPartyModules = new Set(modules);
+}
+
+/**
+ * Returns the current set of first-party module names.
+ */
+export function getFirstPartyModules(): readonly string[] {
+    return [...firstPartyModules];
+}
+
+/**
+ * Returns `true` when the given module (or its root package) has been
+ * explicitly configured as first-party.
+ */
+export function isFirstPartyModule(moduleName: string): boolean {
+    const rootModule = moduleName.split('.')[0];
+    return firstPartyModules.has(rootModule);
 }
 
 /**
@@ -154,4 +186,5 @@ async function rebuildCache(): Promise<void> {
     }
 
     knownModulePaths = paths;
+    log(`Module cache rebuilt — ${paths.size} Python file(s) indexed.`);
 }

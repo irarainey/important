@@ -50,8 +50,15 @@ export type ImportIssueCode =
 
 /**
  * Import category for grouping and ordering.
+ * Follows Google Python Style Guide section 3.13 extended with Ruff's
+ * first-party concept:
+ *  1. __future__ imports
+ *  2. stdlib
+ *  3. third-party
+ *  4. first-party — explicitly configured project modules
+ *  5. local — relative imports & workspace-detected modules
  */
-export type ImportCategory = 'stdlib' | 'third-party' | 'local';
+export type ImportCategory = 'future' | 'stdlib' | 'third-party' | 'first-party' | 'local';
 
 /**
  * Configuration options for the extension.
@@ -60,4 +67,8 @@ export interface ImportantConfig {
     readonly validateOnSave: boolean;
     readonly validateOnType: boolean;
     readonly styleGuide: 'google';
+    /** Explicitly configured first-party module names (e.g. `["myproject"]`). */
+    readonly knownFirstParty: readonly string[];
+    /** Whether to auto-read `known-first-party` from `pyproject.toml`. Defaults to `true`. */
+    readonly readFromPyprojectToml: boolean;
 }

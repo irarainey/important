@@ -1,4 +1,4 @@
-## 0.1.5
+## 0.2.0
 
 - Added **first-party** import category matching Ruff's isort behaviour. Import ordering is now 5 groups: `__future__` → stdlib → third-party → first-party → local.
 - Added `important.knownFirstParty` setting to explicitly configure first-party module names.

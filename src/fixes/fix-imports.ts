@@ -4,6 +4,7 @@ import { isInStringOrComment, escapeRegex } from '../utils/text-utils';
 import { getModuleSymbols, hasModuleSymbols } from '../utils/module-symbols';
 import { sortImportsInDocument } from './sort-imports';
 import { ensureModuleResolverReady } from '../utils/module-resolver';
+import { log } from '../utils/logger';
 
 /**
  * Fixes all import issues in the current document.
@@ -17,6 +18,9 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
     const document = editor.document;
     const issues = validateImports(document);
     let madeChanges = false;
+
+    const relativePath = vscode.workspace.asRelativePath(document.uri);
+    log(`Fixing imports in ${relativePath}: ${issues.length} issue(s) detected.`);
 
     // First: Fix wildcard imports by converting to module imports
     const wildcardIssues = issues.filter(i => i.code === 'no-wildcard-imports');

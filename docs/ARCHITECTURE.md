@@ -23,9 +23,11 @@ src/
 │   ├── fix-imports.ts              # Main fix orchestration
 │   └── sort-imports.ts             # Sorting, deduplication, unused removal
 └── utils/
+    ├── logger.ts                   # Output channel logging utilities
     ├── module-resolver.ts          # Workspace Python module detection
     ├── stdlib-modules.ts           # Python stdlib module list
     ├── module-symbols.ts           # Known symbols for wildcard fixing
+    ├── pyproject-reader.ts         # Reads first-party config from pyproject.toml
     └── text-utils.ts               # Regex escaping, string/comment detection
 ```
 
@@ -130,15 +132,17 @@ interface ImportIssue {
 Categorizes imports for grouping (matching Ruff / isort ordering):
 
 ```typescript
-type ImportCategory = "stdlib" | "third-party" | "local";
+type ImportCategory = "future" | "stdlib" | "third-party" | "first-party" | "local";
 ```
 
 Category detection (`getImportCategory`):
 
-1. **Relative imports** (leading dots) → always `local`
-2. **stdlib** — matched against a built-in list of Python 3.11+ standard library module names
-3. **local** — the module's root package exists in the workspace filesystem (via `isLocalModule`)
-4. **third-party** — everything else (installed packages)
+1. **`__future__`** — `from __future__ import …` always comes first
+2. **Relative imports** (leading dots) → always `local`
+3. **stdlib** — matched against a built-in list of Python 3.11+ standard library module names
+4. **first-party** — explicitly configured via `important.knownFirstParty` or auto-read from `pyproject.toml`
+5. **local** — the module's root package exists in the workspace filesystem (via `isLocalModule`)
+6. **third-party** — everything else (installed packages)
 
 ## Validation Rules
 
@@ -215,10 +219,10 @@ Symbol detection skips:
 
 1. **Parse** all imports in document
 2. **Normalize**: Expand `import os, sys` → separate imports
-3. **Filter**: Remove imports where all names are unused
+3. **Filter**: Remove imports where all names are unused (preserves `__future__` directives)
 4. **Deduplicate**: Merge `from X import a` and `from X import b`
-5. **Categorize**: Assign each to stdlib/third-party/local
-6. **Sort**: Alphabetically within each category
+5. **Categorize**: Assign each to future / stdlib / third-party / first-party / local
+6. **Sort**: Alphabetically within each category (pure lexicographic, ignoring case)
 7. **Format**: Join with blank lines between categories
 8. **Apply**: Replace import block if changed
 
@@ -235,24 +239,42 @@ The `isInStringOrComment` function handles:
 
 ### Activation (`extension.ts`)
 
-1. Initialise module resolver (scans workspace for `.py` files)
-2. Create `DiagnosticCollection` for import issues
-3. Register `CodeActionProvider` for quick fixes
-4. Register `HoverProvider` for diagnostic hover info
-5. Register command (`important.fixImports`)
-6. Set up event handlers:
-    - `onDidOpenTextDocument` - validate on open
-    - `onDidChangeTextDocument` - validate on type (debounced)
-    - `onDidSaveTextDocument` - validate on save (if enabled)
-    - `onDidChangeActiveTextEditor` - revalidate when switching files
-7. Validate all currently-open Python documents
+1. Create Output channel for logging (`logger.ts`)
+2. Initialise module resolver (scans workspace for `.py` files)
+3. Load first-party module configuration (from settings + `pyproject.toml`)
+4. Create `DiagnosticCollection` for import issues
+5. Register `CodeActionProvider` for quick fixes
+6. Register `HoverProvider` for diagnostic hover info
+7. Register commands (`important.fixImports`, `important.showFirstPartyModules`)
+8. Set up event handlers:
+    - `onDidOpenTextDocument` — validate on open
+    - `onDidChangeTextDocument` — validate on type (debounced)
+    - `onDidSaveTextDocument` — validate on save (if enabled)
+    - `onDidChangeActiveTextEditor` — revalidate when switching files
+    - `onDidChangeConfiguration` — re-register handlers and reload first-party modules
+9. Validate all currently-open Python documents (once module resolver is ready)
+10. Watch `pyproject.toml` for changes and auto-reload first-party configuration
 
 ### Deactivation
 
-1. Clear pending validation timers
-2. Dispose config-dependent handlers
-3. Dispose module resolver
-4. Dispose diagnostic collection
+1. Log deactivation
+2. Clear pending validation timers
+3. Dispose config-dependent handlers
+4. Dispose module resolver
+5. Dispose diagnostic collection
+
+## Logging
+
+The extension writes timestamped messages to a dedicated **"Important"** Output channel (`View → Output → select "Important"`). Key events logged:
+
+- Activation and deactivation lifecycle
+- Module resolver initialisation and cache rebuilds (with file counts)
+- First-party module loading (source: settings, `pyproject.toml`, or both)
+- `pyproject.toml` discovery and parsing results
+- Fix command execution (with issue counts)
+- Configuration changes
+
+Logging utilities are in `utils/logger.ts` and expose `log()`, `logWarn()`, and `logError()` functions.
 
 ## Configuration
 
@@ -261,10 +283,12 @@ interface ImportantConfig {
 	validateOnSave: boolean; // Validate when file is saved
 	validateOnType: boolean; // Validate as you type
 	styleGuide: "google"; // Style guide (currently only Google)
+	knownFirstParty: readonly string[]; // Module names treated as first-party
+	readFromPyprojectToml: boolean; // Auto-read first-party from pyproject.toml
 }
 ```
 
-Configuration changes trigger re-registration of event handlers.
+Configuration changes trigger re-registration of event handlers and reloading of first-party modules.
 
 ## Adding New Rules
 

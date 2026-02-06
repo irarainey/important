@@ -2,18 +2,25 @@ import * as vscode from 'vscode';
 import type { ImportStatement, ImportIssue, ImportCategory } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
 import { escapeRegex } from '../utils/text-utils';
-import { isWorkspaceModule, isLocalModule } from '../utils/module-resolver';
+import { isWorkspaceModule, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
 /**
  * Determines the category of an import for grouping purposes.
  *
- * Categories (matching Ruff / isort ordering):
- *  1. stdlib  — Python standard library modules
- *  2. third-party — installed packages (pip, etc.)
- *  3. local — modules that exist within the workspace filesystem
+ * Categories (Google Python Style Guide section 3.13 + Ruff first-party):
+ *  1. future      — `from __future__ import …`
+ *  2. stdlib      — Python standard library modules
+ *  3. third-party — installed packages (pip, etc.)
+ *  4. first-party — explicitly configured project modules
+ *  5. local       — relative imports & workspace-detected modules
  */
 export function getImportCategory(importStmt: ImportStatement): ImportCategory {
+    // __future__ imports always come first (Google style 3.13)
+    if (importStmt.module === '__future__') {
+        return 'future';
+    }
+
     // Relative imports are always local
     if (importStmt.level > 0) {
         return 'local';
@@ -21,6 +28,11 @@ export function getImportCategory(importStmt: ImportStatement): ImportCategory {
 
     if (isStdlibModule(importStmt.module)) {
         return 'stdlib';
+    }
+
+    // Check whether the module is explicitly configured as first-party
+    if (isFirstPartyModule(importStmt.module)) {
+        return 'first-party';
     }
 
     // Check whether the root package exists in the workspace filesystem
@@ -116,7 +128,13 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
         // Rule 4: Import modules, not symbols (for non-stdlib 'from x.y import Z' style)
         // Google style prefers: import module, then use module.Symbol
         // or: from package import module, then use module.Symbol
-        if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*') && !isStdlibModule(imp.module)) {
+        // Exemptions per 2.2.4.1: typing, collections.abc, typing_extensions
+        const SYMBOL_IMPORT_EXEMPTIONS = ['typing', 'typing_extensions', 'collections.abc'];
+        const isExempt = SYMBOL_IMPORT_EXEMPTIONS.some(
+            exempt => imp.module === exempt || imp.module.startsWith(`${exempt}.`)
+        );
+
+        if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*') && !isStdlibModule(imp.module) && !isExempt) {
             const moduleParts = imp.module.split('.');
 
             // Determine whether the imported names are symbols (classes,
@@ -180,7 +198,8 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
         }
 
         // Rule 7: Check for unused imports
-        const unusedNames = findUnusedNames(document, imp);
+        // Skip __future__ imports — their names are directives, not symbols
+        const unusedNames = imp.module === '__future__' ? [] : findUnusedNames(document, imp);
         if (unusedNames.length > 0 && !imp.names.includes('*')) {
             if (unusedNames.length === imp.names.length) {
                 // All names are unused - entire import is unused
@@ -207,8 +226,8 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
         }
     }
 
-    // Rule 5: Check import ordering (stdlib → third-party → local)
-    const categoryOrder: ImportCategory[] = ['stdlib', 'third-party', 'local'];
+    // Rule 5: Check import ordering (__future__ → stdlib → third-party → first-party → local)
+    const categoryOrder: ImportCategory[] = ['future', 'stdlib', 'third-party', 'first-party', 'local'];
     let lastCategory: ImportCategory | undefined;
 
     for (const imp of imports) {
@@ -254,7 +273,9 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
 }
 
 /**
- * Checks if imports within a group are alphabetically ordered.
+ * Checks if imports within a group are sorted lexicographically by
+ * module path, ignoring case (Google style 3.13).  `import` and `from`
+ * statements are interleaved — the sort key is purely the module path.
  */
 function checkAlphabeticalOrder(imports: ImportStatement[], issues: ImportIssue[]): void {
     for (let i = 1; i < imports.length; i++) {

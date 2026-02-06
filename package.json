@@ -3,7 +3,7 @@
   "displayName": "Important",
   "description": "A Visual Studio Code extension to validate and format Python import statements according to the Google Python Style Guide.",
   "icon": "resources/images/logo.png",
-  "version": "0.1.4",
+  "version": "0.2.0",
   "publisher": "irarainey",
   "author": {
     "name": "Ira Rainey",
@@ -44,6 +44,11 @@
         "command": "important.fixImports",
         "title": "Fix Imports in This File",
         "category": "Important"
+      },
+      {
+        "command": "important.showFirstPartyModules",
+        "title": "Show First-Party Modules",
+        "category": "Important"
       }
     ],
     "menus": {
@@ -55,6 +60,14 @@
         }
       ]
     },
+    "keybindings": [
+      {
+        "command": "important.fixImports",
+        "key": "ctrl+k ctrl+shift+f",
+        "mac": "cmd+k cmd+shift+f",
+        "when": "editorLangId == python"
+      }
+    ],
     "configuration": {
       "title": "Important",
       "properties": {
@@ -78,6 +91,19 @@
             "Google Python Style Guide"
           ],
           "description": "The style guide to use for import validation."
+        },
+        "important.knownFirstParty": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "An array of module names to treat as first-party imports (e.g. [\"myproject\", \"mypackage\"]). First-party imports are grouped between third-party and local imports, matching Ruff's isort behaviour."
+        },
+        "important.readFromPyprojectToml": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically read known-first-party modules from the [tool.ruff.lint.isort] section in pyproject.toml. When enabled, values from pyproject.toml are merged with the knownFirstParty setting."
         }
       }
     }

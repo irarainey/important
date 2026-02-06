@@ -11,6 +11,9 @@
  * Top-level standard library module names.
  */
 const STDLIB_MODULE_LIST: readonly string[] = [
+    // Special: __future__ is a stdlib module used for feature directives
+    '__future__',
+
     // Built-in and core modules
     'abc', 'aifc', 'argparse', 'array', 'ast', 'asynchat', 'asyncio', 'asyncore',
     'atexit', 'audioop',
@@ -102,11 +105,14 @@ const STDLIB_MODULE_LIST: readonly string[] = [
 
 /**
  * Common submodules that should also be recognized as stdlib.
+ *
+ * Note: `typing_extensions` is a third-party package (PyPI), NOT stdlib.
+ * It is exempt from Rule 4 (import-modules-not-symbols) per 2.2.4.1,
+ * but it belongs in the third-party import group.
  */
 const STDLIB_SUBMODULES: readonly string[] = [
     'os.path',
     'collections.abc',
-    'typing.extensions',
 ];
 
 /**

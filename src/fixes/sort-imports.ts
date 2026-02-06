@@ -85,6 +85,15 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
                     });
                 }
             }
+        } else if (imp.module === '__future__') {
+            // Always preserve __future__ imports — their names are
+            // directives, not symbols referenced elsewhere in code.
+            normalized.push({
+                module: imp.module,
+                type: 'from',
+                names: [...imp.names],
+                category,
+            });
         } else if (imp.names.includes('*')) {
             // Keep wildcard imports as-is
             normalized.push({
@@ -111,8 +120,10 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
 
     // Group by category
     const groups: Record<ImportCategory, NormalizedImport[]> = {
+        'future': [],
         'stdlib': [],
         'third-party': [],
+        'first-party': [],
         'local': [],
     };
 
@@ -142,17 +153,16 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
         groups[imp.category].push(imp);
     }
 
-    // Sort alphabetically within each group (pure alphabetical by module name)
-    const sortKey = (imp: NormalizedImport): string => {
-        return imp.module.toLowerCase();
-    };
-
+    // Sort lexicographically by full module path within each group,
+    // ignoring case (Google style 3.13).  import and from are interleaved.
     for (const category of Object.keys(groups) as ImportCategory[]) {
-        groups[category].sort((a, b) => sortKey(a).localeCompare(sortKey(b)));
+        groups[category].sort((a, b) =>
+            a.module.toLowerCase().localeCompare(b.module.toLowerCase())
+        );
     }
 
     // Build the sorted import text
-    const categoryOrder: ImportCategory[] = ['stdlib', 'third-party', 'local'];
+    const categoryOrder: ImportCategory[] = ['future', 'stdlib', 'third-party', 'first-party', 'local'];
     const sortedBlocks: string[] = [];
 
     for (const category of categoryOrder) {
