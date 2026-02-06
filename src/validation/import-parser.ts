@@ -2,6 +2,30 @@ import * as vscode from 'vscode';
 import type { ImportStatement } from '../types';
 
 /**
+ * Parses a comma-separated list of imported names, extracting original
+ * names and any `as` aliases into parallel structures.
+ */
+function parseNameList(raw: string): { names: string[]; aliases: Map<string, string> } {
+    const names: string[] = [];
+    const aliases = new Map<string, string>();
+
+    for (const token of raw.split(',')) {
+        const trimmed = token.trim();
+        if (!trimmed || trimmed === ')') continue;
+
+        const asMatch = trimmed.match(/^(\S+)\s+as\s+(\S+)$/);
+        if (asMatch) {
+            names.push(asMatch[1]);
+            aliases.set(asMatch[1], asMatch[2]);
+        } else {
+            names.push(trimmed);
+        }
+    }
+
+    return { names, aliases };
+}
+
+/**
  * Parses a single line of Python code to extract import information.
  */
 function parseImportLine(line: string, lineNumber: number): ImportStatement | undefined {
@@ -18,12 +42,13 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
         const dots = fromMatch[1];
         const module = fromMatch[2];
         const namesStr = fromMatch[3];
-        const names = namesStr.split(',').map(n => n.trim().split(/\s+as\s+/)[0].trim());
+        const { names, aliases } = parseNameList(namesStr);
 
         return {
             type: 'from',
             module: dots + module,
             names,
+            aliases,
             level: dots.length,
             line: lineNumber,
             endLine: lineNumber,
@@ -35,12 +60,13 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
     const importMatch = trimmed.match(/^import\s+(.+)$/);
     if (importMatch) {
         const modulesStr = importMatch[1];
-        const modules = modulesStr.split(',').map(m => m.trim().split(/\s+as\s+/)[0].trim());
+        const { names: modules, aliases } = parseNameList(modulesStr);
 
         return {
             type: 'import',
             module: modules[0],
             names: modules,
+            aliases,
             level: 0,
             line: lineNumber,
             endLine: lineNumber,
@@ -90,16 +116,14 @@ function parseMultilineImport(
     }
 
     // Parse the collected names
-    const names = namesStr
-        .split(',')
-        .map(n => n.trim().split(/\s+as\s+/)[0].trim())
-        .filter(n => n.length > 0 && n !== ')');
+    const { names, aliases } = parseNameList(namesStr);
 
     return {
         import: {
             type: 'from',
             module: dots + module,
             names,
+            aliases,
             level: dots.length,
             line: startLine,
             endLine,

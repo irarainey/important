@@ -10,6 +10,8 @@ export interface ImportStatement {
     readonly module: string;
     /** The names being imported (for 'from' imports) */
     readonly names: readonly string[];
+    /** Aliases for imported names — maps original name to alias. Only entries with an `as` clause are present. */
+    readonly aliases: ReadonlyMap<string, string>;
     /** The relative import level (0 = absolute, 1 = '.', 2 = '..', etc.) */
     readonly level: number;
     /** The line number in the document (0-based) */
@@ -46,6 +48,8 @@ export type ImportIssueCode =
     | 'no-wildcard-imports'
     | 'no-multiple-imports'
     | 'import-modules-not-symbols'
+    | 'non-standard-import-alias'
+    | 'unnecessary-from-alias'
     | 'unused-import'
     | 'wrong-import-order'
     | 'wrong-alphabetical-order';

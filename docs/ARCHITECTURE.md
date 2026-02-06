@@ -90,10 +90,11 @@ Document Change
       │
       └──► sortImportsInDocument() (up to 5 iterations)
            - Expand multi-imports
-           - Remove unused imports
-           - Deduplicate imports
+           - Remove unused imports (alias-aware)
+           - Deduplicate imports (preserves aliases)
            - Group by category
            - Sort: `import` before `from`, then alphabetically
+           - Reconstruct with `as` clauses
            - Apply edit if changed
 ```
 
@@ -108,6 +109,7 @@ interface ImportStatement {
 	type: "import" | "from"; // import X vs from X import Y
 	module: string; // The module name (e.g., 'os.path')
 	names: readonly string[]; // Imported names (['join', 'exists'] or ['os'])
+	aliases: ReadonlyMap<string, string>; // name → alias for `as` clauses
 	level: number; // Relative import dots (0 = absolute)
 	line: number; // Start line number (0-based)
 	endLine: number; // End line number (same as line for single-line imports)
@@ -173,18 +175,26 @@ First-party resolution (`isFirstPartyModule(moduleName, documentUri?)`):
 
 ## Validation Rules
 
-| Code                         | Rule                            | Severity | Auto-Fix                  |
-| ---------------------------- | ------------------------------- | -------- | ------------------------- |
-| `no-relative-imports`        | No relative imports (`.module`) | Warning  | Strip dots                |
-| `no-wildcard-imports`        | No `from X import *`            | Warning  | Convert to module import  |
-| `no-multiple-imports`        | No `import os, sys`             | Warning  | Split to separate lines   |
-| `import-modules-not-symbols` | Import modules, not symbols     | Info     | Refactor to module access |
+| Code                         | Rule                                       | Severity | Auto-Fix                        |
+| ---------------------------- | ------------------------------------------ | -------- | ------------------------------- |
+| `no-relative-imports`        | No relative imports (`.module`)            | Warning  | Strip dots                      |
+| `no-wildcard-imports`        | No `from X import *`                       | Warning  | Convert to module import        |
+| `no-multiple-imports`        | No `import os, sys`                        | Warning  | Split to separate lines         |
+| `import-modules-not-symbols` | Import modules, not symbols                | Info     | Refactor to module access       |
+| `non-standard-import-alias`  | `import y as z` only for standard abbrevs  | Info     | Suggest standard alias or plain |
+| `unnecessary-from-alias`     | `from x import y as z` only when justified | Info     | —                               |
 
 The `import-modules-not-symbols` rule uses a three-tier approach to distinguish module imports from symbol imports:
 
 1. **Definitive filesystem check**: `isModuleFile()` checks whether the module path (e.g. `sample.service.config`) resolves to a `.py` file in the workspace. If it does, everything imported from it is definitively a symbol — a `.py` file cannot contain sub-modules. The violation is flagged immediately.
 2. **Sub-module filesystem check**: `isWorkspaceModule()` checks whether the _imported name_ resolves to a `.py` file or package. If so, it is treated as a module import (not flagged).
 3. **Dot-access heuristic**: If a snake_case imported name is used with dot access (`name.attr`) in the file, it is treated as a module. PascalCase names (starting with an uppercase letter) skip this heuristic, as they are almost certainly classes whose dot access (e.g. `Config.from_dict()`) should not suppress the violation.
+
+Exemptions per Google style 2.2.4.1: `typing`, `collections.abc`, `typing_extensions`, and `six.moves` are exempt from this rule. The rule applies to all modules including stdlib — importing symbols from stdlib modules (e.g. `from os.path import join`) is flagged the same as third-party symbol imports.
+
+The `non-standard-import-alias` rule enforces that `import y as z` is only used when `z` is a recognised standard abbreviation (e.g. `import numpy as np`). A built-in list of well-known aliases is used for validation.
+
+The `unnecessary-from-alias` rule flags `from x import y as z` when no other import in the file imports a name `y`, indicating there is no detectable naming conflict. The remaining subjective conditions (long name, too generic, conflicts with local definitions) are noted in the diagnostic message for the developer to evaluate.
 
 | `unused-import` | Remove unused imports | Hint | Delete or trim |
 | `wrong-import-order` | stdlib → third-party → local | Info | Reorder |
@@ -212,7 +222,7 @@ from typing import (
 The parser:
 
 1. Matches `import X` or `from X import Y` patterns
-2. Handles `as` aliases (strips them for validation)
+2. Parses `as` aliases into a `Map<string, string>` on the `ImportStatement`, preserving the original name as the key and the alias as the value
 3. Tracks relative import level (number of dots)
 4. Collects multi-line imports by tracking parentheses
 5. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
@@ -250,11 +260,11 @@ Symbol detection skips:
 
 1. **Parse** all imports in document
 2. **Normalize**: Expand `import os, sys` → separate imports
-3. **Filter**: Remove imports where all names are unused (preserves `__future__` directives)
-4. **Deduplicate**: Merge `from X import a` and `from X import b`
+3. **Filter**: Remove imports where all names are unused (preserves `__future__` directives). When a name has an `as` alias, the alias is checked for usage instead of the original name.
+4. **Deduplicate**: Merge `from X import a` and `from X import b` (aliases are preserved during merging)
 5. **Categorize**: Assign each to future / stdlib / third-party / first-party / local
 6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case) — matching Ruff/isort default behaviour
-7. **Format**: Join with blank lines between categories
+7. **Format**: Join with blank lines between categories, reconstructing `as` clauses where present
 8. **Apply**: Replace import block if changed
 
 ### String/Comment Detection (`text-utils.ts`)
@@ -331,6 +341,7 @@ To add a new validation rule:
 2. Add validation logic in `validateImports()` in `import-validator.ts`
 3. If auto-fixable, add `suggestedFix` to the issue
 4. For complex fixes, add handling in `fix-imports.ts`
+5. If the rule uses alias information, access `imp.aliases` (a `ReadonlyMap<string, string>` mapping original name → alias)
 
 ## Adding Module Symbols
 

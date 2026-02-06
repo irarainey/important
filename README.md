@@ -15,16 +15,18 @@ A Visual Studio Code extension that validates and formats Python import statemen
 
 ### Validation Rules
 
-| Rule                       | Description                                                  | Auto-Fix |
-| -------------------------- | ------------------------------------------------------------ | -------- |
-| No relative imports        | `from .module import x` → `from package.module import x`     | ✅       |
-| No wildcard imports        | `from os.path import *` → `import os` + `os.path.func()`     | ✅       |
-| One import per line        | `import os, sys` → separate statements                       | ✅       |
-| Import modules not symbols | `from fastmcp import Cls` → `import fastmcp` + `fastmcp.Cls` | ✅       |
-| Unused imports             | Imports not referenced in code are removed                   | ✅       |
-| Duplicate imports          | Multiple identical imports are merged                        | ✅       |
-| Correct ordering           | `__future__` → stdlib → third-party → first-party → local    | ✅       |
-| Sorted within groups       | `import` before `from`, then alphabetically                  | ✅       |
+| Rule                         | Description                                                  | Auto-Fix |
+| ---------------------------- | ------------------------------------------------------------ | -------- |
+| No relative imports          | `from .module import x` → `from package.module import x`     | ✅       |
+| No wildcard imports          | `from os.path import *` → `import os` + `os.path.func()`     | ✅       |
+| One import per line          | `import os, sys` → separate statements                       | ✅       |
+| Import modules not symbols   | `from fastmcp import Cls` → `import fastmcp` + `fastmcp.Cls` | ✅       |
+| Standard import aliases only | `import y as z` only for standard abbreviations (e.g. `np`)  | ✅       |
+| Justified from-aliases only  | `from x import y as z` only when a naming conflict exists    | —        |
+| Unused imports               | Imports not referenced in code are removed                   | ✅       |
+| Duplicate imports            | Multiple identical imports are merged                        | ✅       |
+| Correct ordering             | `__future__` → stdlib → third-party → first-party → local    | ✅       |
+| Sorted within groups         | `import` before `from`, then alphabetically                  | ✅       |
 
 ### Example
 
@@ -85,7 +87,7 @@ Also available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-cli
 Or via command line:
 
 ```bash
-code --install-extension important-python-0.2.1.vsix
+code --install-extension important-python-0.2.2.vsix
 ```
 
 ## Configuration

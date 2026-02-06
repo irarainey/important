@@ -1,3 +1,13 @@
+## 0.2.2
+
+- **Alias validation**: Added `non-standard-import-alias` rule — `import y as z` is now flagged when `z` is not a recognised standard abbreviation (e.g. `np`, `pd`, `plt`, `tf`). A built-in list of well-known aliases is checked; a suggested fix is provided when a standard alias exists.
+- **Alias validation**: Added `unnecessary-from-alias` rule — `from x import y as z` is flagged when no other import in the file imports a name `y`, indicating no detectable naming conflict. The diagnostic message explains the valid use cases per Google style 2.2.4.
+- **Alias-aware parsing**: The import parser now preserves `as` aliases in a `Map<string, string>` on `ImportStatement` instead of stripping them. All downstream consumers (validator, sort-imports, fix-imports, unused-import detection) are alias-aware.
+- **Alias-aware unused detection**: Unused import detection now checks for usage of the alias (not the original name) when an `as` clause is present.
+- **Alias-preserving sort**: Import sorting now preserves `as` clauses when reconstructing sorted import text.
+- **Stdlib Rule 4 enforcement**: The `import-modules-not-symbols` rule now applies to stdlib modules (e.g. `from os.path import join` is flagged). Previously all stdlib modules were blanket-exempt; now only the four modules listed in Google style 2.2.4.1 (typing, collections.abc, typing_extensions, six.moves) are exempt.
+- **six.moves exemption**: Added `six.moves` to the `SYMBOL_IMPORT_EXEMPTIONS` list, matching Google style 2.2.4.1. Previously it was missing.
+
 ## 0.2.1
 
 - **Performance**: Index-based module lookups — `isLocalModule()` and `isModuleFile()` now use pre-built indices for O(1) lookups instead of iterating all module paths.

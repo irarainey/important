@@ -10,6 +10,8 @@ interface NormalizedImport {
     module: string;
     type: 'import' | 'from';
     names: string[];
+    /** Maps original name → alias for names with `as` clauses. */
+    aliases: Map<string, string>;
     category: ImportCategory;
 }
 
@@ -55,11 +57,16 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
         if (imp.type === 'import') {
             // Expand 'import os, sys' into separate imports
             for (const name of imp.names) {
-                if (isNameUsedOutsideLines(document, documentText, name, importLineSet)) {
+                const alias = imp.aliases.get(name);
+                const usageName = alias ?? name;
+                if (isNameUsedOutsideLines(document, documentText, usageName, importLineSet)) {
+                    const entryAliases = new Map<string, string>();
+                    if (alias) entryAliases.set(name, alias);
                     normalized.push({
                         module: name,
                         type: 'import',
                         names: [name],
+                        aliases: entryAliases,
                         category,
                     });
                 }
@@ -71,6 +78,7 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
                 module: imp.module,
                 type: 'from',
                 names: [...imp.names],
+                aliases: new Map(imp.aliases),
                 category,
             });
         } else if (imp.names.includes('*')) {
@@ -79,18 +87,27 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
                 module: imp.module,
                 type: 'from',
                 names: ['*'],
+                aliases: new Map<string, string>(),
                 category,
             });
         } else {
             // Filter to only used names
-            const usedNames = imp.names.filter(name =>
-                isNameUsedOutsideLines(document, documentText, name, importLineSet)
-            );
+            const usedNames = imp.names.filter(name => {
+                const alias = imp.aliases.get(name);
+                const usageName = alias ?? name;
+                return isNameUsedOutsideLines(document, documentText, usageName, importLineSet);
+            });
             if (usedNames.length > 0) {
+                const filteredAliases = new Map<string, string>();
+                for (const name of usedNames) {
+                    const alias = imp.aliases.get(name);
+                    if (alias) filteredAliases.set(name, alias);
+                }
                 normalized.push({
                     module: imp.module,
                     type: 'from',
                     names: usedNames,
+                    aliases: filteredAliases,
                     category,
                 });
             }
@@ -119,6 +136,10 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
                 for (const name of imp.names) {
                     if (!existing.names.includes(name)) {
                         existing.names.push(name);
+                    }
+                    const alias = imp.aliases.get(name);
+                    if (alias) {
+                        existing.aliases.set(name, alias);
                     }
                 }
             }
@@ -152,9 +173,14 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
         if (categoryImports.length > 0) {
             const lines = categoryImports.map(imp => {
                 if (imp.type === 'import') {
-                    return `import ${imp.module}`;
+                    const alias = imp.aliases.get(imp.module);
+                    return alias ? `import ${imp.module} as ${alias}` : `import ${imp.module}`;
                 } else {
-                    return `from ${imp.module} import ${imp.names.join(', ')}`;
+                    const nameFragments = imp.names.map(n => {
+                        const alias = imp.aliases.get(n);
+                        return alias ? `${n} as ${alias}` : n;
+                    });
+                    return `from ${imp.module} import ${nameFragments.join(', ')}`;
                 }
             });
             sortedBlocks.push(lines.join('\n'));

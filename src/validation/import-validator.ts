@@ -7,7 +7,27 @@ import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } fr
 import { parseImports } from './import-parser';
 
 /** Modules exempt from Rule 4 (import-modules-not-symbols) per Google style 2.2.4.1. */
-const SYMBOL_IMPORT_EXEMPTIONS = ['typing', 'typing_extensions', 'collections.abc'] as const;
+const SYMBOL_IMPORT_EXEMPTIONS = ['typing', 'typing_extensions', 'collections.abc', 'six.moves'] as const;
+
+/**
+ * Well-known standard abbreviations for `import y as z` (Google style 2.2.4).
+ *
+ * Only these aliases are accepted without a warning. The map is keyed by
+ * the full module name; the value is the conventional short alias.
+ */
+const STANDARD_IMPORT_ALIASES: ReadonlyMap<string, string> = new Map([
+    ['numpy', 'np'],
+    ['pandas', 'pd'],
+    ['matplotlib', 'mpl'],
+    ['matplotlib.pyplot', 'plt'],
+    ['seaborn', 'sns'],
+    ['tensorflow', 'tf'],
+    ['scipy', 'sp'],
+    ['polars', 'pl'],
+    ['networkx', 'nx'],
+    ['sqlalchemy', 'sa'],
+    ['datetime', 'dt'],
+]);
 
 /**
  * Determines the category of an import for grouping purposes.
@@ -70,12 +90,15 @@ function importLineSet(imp: ImportStatement): Set<number> {
 
 /**
  * Finds names from an import statement that are not used in the document.
+ * When a name has an alias (`as` clause), the alias is checked for usage
+ * instead of the original name.
  */
 function findUnusedNames(document: vscode.TextDocument, documentText: string, imp: ImportStatement): string[] {
     const excludeLines = importLineSet(imp);
     return imp.names.filter(name => {
         if (name === '*') return false;
-        return !isNameUsedOutsideLines(document, documentText, name, excludeLines);
+        const usageName = imp.aliases.get(name) ?? name;
+        return !isNameUsedOutsideLines(document, documentText, usageName, excludeLines);
     });
 }
 
@@ -137,7 +160,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
             exempt => imp.module === exempt || imp.module.startsWith(`${exempt}.`)
         );
 
-        if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*') && !isStdlibModule(imp.module) && !isExempt) {
+        if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*') && !isExempt) {
             const moduleParts = imp.module.split('.');
 
             // Definitive filesystem check: if the module path resolves to
@@ -208,6 +231,58 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                         suggestedFix: `import ${imp.module}`,
                     });
                 }
+            }
+        }
+
+        // Rule 8: Validate `import y as z` aliases (Google style 2.2.4)
+        // Only standard abbreviations are permitted for plain import aliases.
+        if (imp.type === 'import' && imp.aliases.size > 0) {
+            for (const [original, alias] of imp.aliases) {
+                const standardAlias = STANDARD_IMPORT_ALIASES.get(original);
+                if (standardAlias !== alias) {
+                    const hint = standardAlias
+                        ? `The standard alias for '${original}' is '${standardAlias}'.`
+                        : `No standard abbreviation is known for '${original}'.`;
+                    issues.push({
+                        code: 'non-standard-import-alias',
+                        message: `'import ${original} as ${alias}' uses a non-standard alias (Google Python Style Guide). ${hint}`,
+                        severity: vscode.DiagnosticSeverity.Information,
+                        range: importRange(document, imp),
+                        import: imp,
+                        suggestedFix: standardAlias ? `import ${original} as ${standardAlias}` : `import ${original}`,
+                    });
+                }
+            }
+        }
+
+        // Rule 9: Validate `from x import y as z` aliases (Google style 2.2.4)
+        // Aliasing should only be used when a naming conflict or length
+        // warrants it.  We can automatically detect duplicate-name conflicts
+        // across the file's imports; the remaining conditions are subjective
+        // so we flag any alias that has no detectable justification.
+        if (imp.type === 'from' && imp.aliases.size > 0) {
+            // Collect all imported names across every import in this file
+            // to check for duplicate-name conflicts.
+            const allImportedNames = new Set<string>();
+            for (const other of imports) {
+                if (other === imp) continue;
+                for (const n of other.names) {
+                    allImportedNames.add(n);
+                }
+            }
+
+            for (const [original, alias] of imp.aliases) {
+                // Allow if another import brings in the same name (conflict)
+                if (allImportedNames.has(original)) {
+                    continue;
+                }
+                issues.push({
+                    code: 'unnecessary-from-alias',
+                    message: `'from ${imp.module} import ${original} as ${alias}' — aliasing should only be used when two imports share the same name, or the name conflicts with a local definition, is inconveniently long, or is too generic (Google Python Style Guide).`,
+                    severity: vscode.DiagnosticSeverity.Information,
+                    range: importRange(document, imp),
+                    import: imp,
+                });
             }
         }
 
