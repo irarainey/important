@@ -98,6 +98,9 @@ download_and_setup() {
     mkdir -p "$target_dir"
     tar -xzf "$archive_path" -C "$target_dir" --strip-components=1
     
+    # Recreate .gitkeep to preserve directory in git
+    touch "$target_dir/.gitkeep"
+    
     # Determine site-packages location
     local site_packages
     if [[ "$platform" == "win" ]]; then
