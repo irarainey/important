@@ -7,6 +7,11 @@
 - `getImportCategory()` and `isFirstPartyModule()` now accept an optional document URI for path-scoped resolution.
 - Added `ScopedFirstParty` type to represent directory-scoped first-party module entries.
 - **Show First-Party Modules** command now displays scoped entries with their directory paths.
+- Fixed multi-line import handling: added `endLine` to `ImportStatement` so diagnostic ranges, unused-name detection, and symbol replacement correctly span all lines of parenthesized imports.
+- Fixed PascalCase names (e.g. `Config`, `User`) with dot access being incorrectly treated as modules by the dot-access heuristic, suppressing `import-modules-not-symbols` violations.
+- Added `isModuleFile()` to definitively detect when a module path resolves to a `.py` file, guaranteeing that anything imported from it is a symbol.
+- Three-tier symbol detection for `import-modules-not-symbols`: definitive filesystem check → sub-module filesystem check → snake_case dot-access heuristic.
+- Moved sample project from `examples/` to `tests/`.
 
 ## 0.2.0
 

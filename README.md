@@ -257,6 +257,9 @@ important/
 │       └── text-utils.ts      			# Text/regex utilities
 ├── tests/
 │   └── sample_project/         		# Sample Python project for testing
+│       ├── sample_project/         	# First-party package for testing
+│       │   ├── __init__.py
+│       │   └── helpers.py
 │       └── src/
 │           ├── main.py             	# Multiple issues: multi-imports, order, unused
 │           ├── helpers/helpers.py  	# Parent relative import, multiple imports

@@ -80,8 +80,10 @@ Document Change
       │    - Convert to module import
       │
       ├──► Fix import-modules-not-symbols
-      │    - Detect symbol imports via workspace module scanning
-      │      and dot-access usage heuristics
+      │    - Detect symbol imports via three-tier approach:
+      │      1. Definitive: module path is a .py file (isModuleFile)
+      │      2. Sub-module: imported name is a .py file/package (isWorkspaceModule)
+      │      3. Heuristic: snake_case name with dot-access usage
       │    - Top-level: from pkg import Cls → import pkg
       │    - Deep: from pkg.mod import Cls → from pkg import mod
       │    - Replace symbol usages with qualified names
@@ -107,8 +109,9 @@ interface ImportStatement {
 	module: string; // The module name (e.g., 'os.path')
 	names: readonly string[]; // Imported names (['join', 'exists'] or ['os'])
 	level: number; // Relative import dots (0 = absolute)
-	line: number; // Line number (0-based)
-	text: string; // Original import text
+	line: number; // Start line number (0-based)
+	endLine: number; // End line number (same as line for single-line imports)
+	text: string; // Original import text (may contain newlines for multi-line)
 }
 ```
 
@@ -171,11 +174,11 @@ First-party resolution (`isFirstPartyModule(moduleName, documentUri?)`):
 | `no-multiple-imports`        | No `import os, sys`             | Warning  | Split to separate lines   |
 | `import-modules-not-symbols` | Import modules, not symbols     | Info     | Refactor to module access |
 
-The `import-modules-not-symbols` rule uses a multi-layered approach to distinguish module imports from symbol imports:
+The `import-modules-not-symbols` rule uses a three-tier approach to distinguish module imports from symbol imports:
 
-1. **Workspace scanning**: A module resolver (`module-resolver.ts`) scans the workspace for `.py` files on activation and maintains a cached set of known module paths. A file-system watcher keeps the cache current.
-2. **Dot-access heuristic**: If an imported name is used with dot access (`name.attr`) in the file, it is treated as a module.
-3. If neither check identifies the import as a module, the name is assumed to be a symbol and the import is flagged.
+1. **Definitive filesystem check**: `isModuleFile()` checks whether the module path (e.g. `sample.service.config`) resolves to a `.py` file in the workspace. If it does, everything imported from it is definitively a symbol — a `.py` file cannot contain sub-modules. The violation is flagged immediately.
+2. **Sub-module filesystem check**: `isWorkspaceModule()` checks whether the _imported name_ resolves to a `.py` file or package. If so, it is treated as a module import (not flagged).
+3. **Dot-access heuristic**: If a snake_case imported name is used with dot access (`name.attr`) in the file, it is treated as a module. PascalCase names (starting with an uppercase letter) skip this heuristic, as they are almost certainly classes whose dot access (e.g. `Config.from_dict()`) should not suppress the violation.
 
 | `unused-import` | Remove unused imports | Hint | Delete or trim |
 | `wrong-import-order` | stdlib → third-party → local | Info | Reorder |
@@ -206,6 +209,7 @@ The parser:
 2. Handles `as` aliases (strips them for validation)
 3. Tracks relative import level (number of dots)
 4. Collects multi-line imports by tracking parentheses
+5. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
 
 ### Symbol Usage Detection (`import-validator.ts`, `sort-imports.ts`)
 
@@ -214,7 +218,7 @@ Determines if an imported name is used:
 1. Create regex pattern: `\b{name}\b` (word boundary match)
 2. Search entire document text
 3. For each match:
-    - Skip if on import line
+    - Skip if within the import's line range (`line` to `endLine`) — correctly handles multi-line imports
     - Skip if in a comment (check for `#` before match)
 4. Return true if any valid usage found
 
@@ -229,7 +233,7 @@ For `from os.path import *`:
 
 Symbol detection skips:
 
-- The import line itself
+- All lines of the import statement (`line` through `endLine`), including multi-line parenthesized imports
 - Strings and comments (using `isInStringOrComment`)
 - Already-qualified names (preceded by `.`)
 
