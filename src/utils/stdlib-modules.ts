@@ -1,22 +1,25 @@
 /**
- * Python standard library modules for Python 3.11+.
+ * Python standard library modules for Python 3.11–3.12.
  * 
- * This list is used to categorize imports as stdlib vs third-party.
+ * This is the **union** of both versions' `sys.stdlib_module_names` so that
+ * modules present in either version are correctly categorised as stdlib.
+ * Modules removed in 3.12 are kept for 3.11 users.
+ * 
  * Maintained separately for easier updates when Python versions change.
  * 
  * @see https://docs.python.org/3/library/index.html
  */
 
 /**
- * Top-level standard library module names.
+ * Top-level standard library module names (public, non-underscore-prefixed).
  */
 const STDLIB_MODULE_LIST: readonly string[] = [
     // Special: __future__ is a stdlib module used for feature directives
     '__future__',
 
-    // Built-in and core modules
-    'abc', 'aifc', 'argparse', 'array', 'ast', 'asynchat', 'asyncio', 'asyncore',
-    'atexit', 'audioop',
+    // A
+    'abc', 'aifc', 'antigravity', 'argparse', 'array', 'ast', 'asynchat',
+    'asyncio', 'asyncore', 'atexit', 'audioop',
 
     // B
     'base64', 'bdb', 'binascii', 'binhex', 'bisect', 'builtins', 'bz2',
@@ -32,14 +35,15 @@ const STDLIB_MODULE_LIST: readonly string[] = [
     'doctest',
 
     // E
-    'email', 'encodings', 'enum', 'errno',
+    'email', 'encodings', 'ensurepip', 'enum', 'errno',
 
     // F
     'faulthandler', 'fcntl', 'filecmp', 'fileinput', 'fnmatch', 'fractions',
     'ftplib', 'functools',
 
     // G
-    'gc', 'getopt', 'getpass', 'gettext', 'glob', 'graphlib', 'grp', 'gzip',
+    'gc', 'genericpath', 'getopt', 'getpass', 'gettext', 'glob', 'graphlib',
+    'grp', 'gzip',
 
     // H
     'hashlib', 'heapq', 'hmac', 'html', 'http',
@@ -56,18 +60,18 @@ const STDLIB_MODULE_LIST: readonly string[] = [
 
     // M
     'mailbox', 'mailcap', 'marshal', 'math', 'mimetypes', 'mmap', 'modulefinder',
-    'multiprocessing',
+    'msvcrt', 'multiprocessing',
 
     // N
-    'netrc', 'nis', 'nntplib', 'numbers',
+    'netrc', 'nis', 'nntplib', 'nt', 'ntpath', 'nturl2path', 'numbers',
 
     // O
-    'operator', 'optparse', 'os', 'ossaudiodev',
+    'opcode', 'operator', 'optparse', 'os', 'ossaudiodev',
 
     // P
     'pathlib', 'pdb', 'pickle', 'pickletools', 'pipes', 'pkgutil', 'platform',
     'plistlib', 'poplib', 'posix', 'posixpath', 'pprint', 'profile', 'pstats',
-    'pty', 'pwd', 'py_compile', 'pyclbr', 'pydoc',
+    'pty', 'pwd', 'py_compile', 'pyclbr', 'pydoc', 'pydoc_data', 'pyexpat',
 
     // Q
     'queue', 'quopri',
@@ -78,14 +82,15 @@ const STDLIB_MODULE_LIST: readonly string[] = [
     // S
     'sched', 'secrets', 'select', 'selectors', 'shelve', 'shlex', 'shutil',
     'signal', 'site', 'smtpd', 'smtplib', 'sndhdr', 'socket', 'socketserver',
-    'spwd', 'sqlite3', 'ssl', 'stat', 'statistics', 'string', 'stringprep',
-    'struct', 'subprocess', 'sunau', 'symtable', 'sys', 'sysconfig', 'syslog',
+    'spwd', 'sqlite3', 'sre_compile', 'sre_constants', 'sre_parse', 'ssl',
+    'stat', 'statistics', 'string', 'stringprep', 'struct', 'subprocess',
+    'sunau', 'symtable', 'sys', 'sysconfig', 'syslog',
 
     // T
-    'tabnanny', 'tarfile', 'telnetlib', 'tempfile', 'termios', 'test', 'textwrap',
-    'threading', 'time', 'timeit', 'tkinter', 'token', 'tokenize', 'tomllib',
-    'trace', 'traceback', 'tracemalloc', 'tty', 'turtle', 'turtledemo', 'types',
-    'typing',
+    'tabnanny', 'tarfile', 'telnetlib', 'tempfile', 'termios', 'test',
+    'textwrap', 'this', 'threading', 'time', 'timeit', 'tkinter', 'token',
+    'tokenize', 'tomllib', 'trace', 'traceback', 'tracemalloc', 'tty',
+    'turtle', 'turtledemo', 'types', 'typing',
 
     // U
     'unicodedata', 'unittest', 'urllib', 'uu', 'uuid',

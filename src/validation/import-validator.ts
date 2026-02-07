@@ -2,32 +2,13 @@ import * as vscode from 'vscode';
 import type { ImportStatement, ImportIssue, ImportCategory, ValidationResult } from '../types';
 import { CATEGORY_ORDER } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
+import { STANDARD_IMPORT_ALIASES } from '../utils/standard-aliases';
 import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines } from '../utils/text-utils';
 import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
 /** Modules exempt from Rule 4 (import-modules-not-symbols) per Google style 2.2.4.1. */
 const SYMBOL_IMPORT_EXEMPTIONS = ['typing', 'typing_extensions', 'collections.abc', 'six.moves'] as const;
-
-/**
- * Well-known standard abbreviations for `import y as z` (Google style 2.2.4).
- *
- * Only these aliases are accepted without a warning. The map is keyed by
- * the full module name; the value is the conventional short alias.
- */
-const STANDARD_IMPORT_ALIASES: ReadonlyMap<string, string> = new Map([
-    ['numpy', 'np'],
-    ['pandas', 'pd'],
-    ['matplotlib', 'mpl'],
-    ['matplotlib.pyplot', 'plt'],
-    ['seaborn', 'sns'],
-    ['tensorflow', 'tf'],
-    ['scipy', 'sp'],
-    ['polars', 'pl'],
-    ['networkx', 'nx'],
-    ['sqlalchemy', 'sa'],
-    ['datetime', 'dt'],
-]);
 
 /**
  * Builds a Range that spans the full extent of an import statement,
