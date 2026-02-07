@@ -19,7 +19,7 @@ A Visual Studio Code extension that validates and formats Python import statemen
 | ---------------------------- | ------------------------------------------------------------ | -------- |
 | No relative imports          | `from .module import x` → `from package.module import x`     | ✅       |
 | No wildcard imports          | `from os.path import *` → `import os` + `os.path.func()`     | ✅       |
-| One import per line          | `import os, sys` → separate statements                       | ✅       |
+| One import per line          | `import os, sys` → separate statements (preserving aliases)  | ✅       |
 | Import modules not symbols   | `from fastmcp import Cls` → `import fastmcp` + `fastmcp.Cls` | ✅       |
 | Standard import aliases only | `import y as z` only for standard abbreviations (e.g. `np`)  | ✅       |
 | Justified from-aliases only  | `from x import y as z` only when a naming conflict exists    | —        |

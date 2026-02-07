@@ -172,7 +172,10 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                 severity: vscode.DiagnosticSeverity.Warning,
                 range: importRange(document, imp),
                 import: imp,
-                suggestedFix: imp.names.map(n => `import ${n}`).join('\n'),
+                suggestedFix: imp.names.map(n => {
+                    const alias = imp.aliases.get(n);
+                    return alias ? `import ${n} as ${alias}` : `import ${n}`;
+                }).join('\n'),
             });
         }
 

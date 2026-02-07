@@ -110,21 +110,53 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
             newName: string;
         }> = [];
 
-        // Phase 1: Replace import statements
-        const aliasEdit = new vscode.WorkspaceEdit();
+        // Group issues by import line so that multi-import lines
+        // (e.g. `import datetime as dt, collections as col`) are
+        // handled as a single replacement instead of conflicting edits.
+        const issuesByLine = new Map<number, typeof currentAliasIssues>();
         for (const issue of currentAliasIssues) {
             if (!issue.suggestedFix) continue;
+            const key = issue.import.line;
+            const group = issuesByLine.get(key) ?? [];
+            group.push(issue);
+            issuesByLine.set(key, group);
+        }
 
-            // The old alias currently used in code
-            const oldAlias = issue.import.aliases.get(issue.import.module);
-            if (!oldAlias) continue;
+        // Phase 1: Replace import statements
+        const aliasEdit = new vscode.WorkspaceEdit();
+        for (const [, lineIssues] of issuesByLine) {
+            const imp = lineIssues[0].import;
 
-            // The new usage name: either the standard alias or the bare module name
-            const asMatch = issue.suggestedFix.match(/^import\s+\S+\s+as\s+(\S+)$/);
-            const newName = asMatch ? asMatch[1] : issue.import.module;
+            // Map module name → suggestedFix for modules flagged on this line
+            const fixes = new Map<string, string>();
+            for (const issue of lineIssues) {
+                const sfMatch = issue.suggestedFix!.match(/^import\s+(\S+)(?:\s+as\s+\S+)?$/);
+                if (sfMatch) {
+                    fixes.set(sfMatch[1], issue.suggestedFix!);
+                }
+            }
 
-            aliasEdit.replace(freshDoc.uri, issue.range, issue.suggestedFix);
-            aliasTransformations.push({ oldAlias, newName });
+            // Rebuild one import line per module: apply fixes where flagged,
+            // preserve unflagged modules unchanged (including their aliases).
+            const lines: string[] = [];
+            for (const name of imp.names) {
+                if (fixes.has(name)) {
+                    lines.push(fixes.get(name)!);
+
+                    // Track alias → new-name transformation for Phase 2
+                    const oldAlias = imp.aliases.get(name);
+                    if (oldAlias) {
+                        const asMatch = fixes.get(name)!.match(/^import\s+\S+\s+as\s+(\S+)$/);
+                        const newName = asMatch ? asMatch[1] : name;
+                        aliasTransformations.push({ oldAlias, newName });
+                    }
+                } else {
+                    const alias = imp.aliases.get(name);
+                    lines.push(alias ? `import ${name} as ${alias}` : `import ${name}`);
+                }
+            }
+
+            aliasEdit.replace(freshDoc.uri, lineIssues[0].range, lines.join('\n'));
         }
 
         if (aliasTransformations.length > 0) {

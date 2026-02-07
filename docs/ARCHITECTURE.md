@@ -225,18 +225,18 @@ First-party resolution (`isFirstPartyModule(moduleName, documentUri?)`):
 
 ## Validation Rules
 
-| Code                         | Rule                                       | Severity | Auto-Fix                        |
-| ---------------------------- | ------------------------------------------ | -------- | ------------------------------- |
-| `no-relative-imports`        | No relative imports (`.module`)            | Warning  | Strip dots                      |
-| `no-wildcard-imports`        | No `from X import *`                       | Warning  | Convert to module import        |
-| `no-multiple-imports`        | No `import os, sys`                        | Warning  | Split to separate lines         |
-| `import-modules-not-symbols` | Import modules, not symbols                | Info     | Refactor to module access       |
-| `non-standard-import-alias`  | `import y as z` only for standard abbrevs  | Info     | Suggest standard alias or plain |
-| `unnecessary-from-alias`     | `from x import y as z` only when justified | Info     | —                               |
-| `unused-import`              | Remove unused imports                      | Hint     | Delete or trim                  |
-| `wrong-import-order`         | stdlib → third-party → local               | Info     | Reorder                         |
-| `wrong-alphabetical-order`   | Alphabetical within groups                 | Info     | Reorder                         |
-| `misplaced-import`           | Import not in the top-level block          | Warning  | Move to top and reorder         |
+| Code                         | Rule                                       | Severity | Auto-Fix                                     |
+| ---------------------------- | ------------------------------------------ | -------- | -------------------------------------------- |
+| `no-relative-imports`        | No relative imports (`.module`)            | Warning  | Strip dots                                   |
+| `no-wildcard-imports`        | No `from X import *`                       | Warning  | Convert to module import                     |
+| `no-multiple-imports`        | No `import os, sys`                        | Warning  | Split to separate lines (preserving aliases) |
+| `import-modules-not-symbols` | Import modules, not symbols                | Info     | Refactor to module access                    |
+| `non-standard-import-alias`  | `import y as z` only for standard abbrevs  | Info     | Suggest standard alias or plain              |
+| `unnecessary-from-alias`     | `from x import y as z` only when justified | Info     | —                                            |
+| `unused-import`              | Remove unused imports                      | Hint     | Delete or trim                               |
+| `wrong-import-order`         | stdlib → third-party → local               | Info     | Reorder                                      |
+| `wrong-alphabetical-order`   | Alphabetical within groups                 | Info     | Reorder                                      |
+| `misplaced-import`           | Import not in the top-level block          | Warning  | Move to top and reorder                      |
 
 The `import-modules-not-symbols` rule uses a three-tier approach to distinguish module imports from symbol imports:
 
@@ -312,9 +312,10 @@ Symbol detection skips:
 
 For `import os as operating_system` (no standard alias exists) or `import datetime as date` (standard is `dt`):
 
-1. Replace the import statement with the suggested fix (`import os` or `import datetime as dt`)
-2. Determine the new usage name: standard alias if present, otherwise the bare module name
-3. Replace all references in code: `operating_system.xxx` → `os.xxx`, `date.xxx` → `dt.xxx`
+1. Group alias issues by import line — multi-import lines (e.g. `import datetime as dt, collections as col`) produce separate issues for each flagged module but must be replaced as a single edit
+2. For each grouped line, rebuild one import per module: flagged modules get their suggested fix applied, unflagged modules are preserved unchanged with their original aliases intact
+3. Determine the new usage name for each flagged module: standard alias if present, otherwise the bare module name
+4. Replace all references in code: `operating_system.xxx` → `os.xxx`, `date.xxx` → `dt.xxx`
 
 Reference replacement skips import lines, strings, comments, and already-qualified names — same rules as wildcard and symbol-import fixing.
 
