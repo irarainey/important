@@ -248,7 +248,7 @@ Exemptions per Google style 2.2.4.1: `typing`, `collections.abc`, `typing_extens
 
 The `non-standard-import-alias` rule enforces that `import y as z` is only used when `z` is a recognised standard abbreviation (e.g. `import numpy as np`). A built-in list of well-known aliases is used for validation. The auto-fix replaces the import with the standard alias (or removes the alias entirely) and renames all references in code from the old alias to the new name.
 
-The `unnecessary-from-alias` rule flags `from x import y as z` when no other import in the file imports a name `y`, indicating there is no detectable naming conflict. The remaining subjective conditions (long name, too generic, conflicts with local definitions) are noted in the diagnostic message for the developer to evaluate.
+The `unnecessary-from-alias` rule flags `from x import y as z` when no detectable naming conflict justifies the alias. It checks two pre-computed maps: `originalNameCounts` (whether another import also imports a name called `y`, count ≥ 2) and `allEffectiveNames` (whether `y` is already used as an effective namespace name by another import — either directly or as an alias). If neither condition is met, the alias is flagged. The remaining subjective conditions (long name, too generic, conflicts with local definitions) are noted in the diagnostic message for the developer to evaluate.
 
 ## Key Algorithms
 
@@ -304,7 +304,7 @@ For `from os.path import *`:
 
 Symbol detection skips:
 
-- All lines of the import statement (`line` through `endLine`), including multi-line parenthesized imports
+- All import lines in the document (via the shared `importLines` set from `ValidationResult`), not just the current import's lines
 - Strings and comments (using `isInStringOrComment`)
 - Already-qualified names (preceded by `.`)
 
@@ -459,4 +459,7 @@ To support wildcard fixing for a new module:
 - **Full-file import scanning**: The parser scans the entire file to detect misplaced imports after the top block. Imports found later in the file are marked `misplaced: true` and relocated to the top on fix
 - **Diagnostic reuse**: The `CodeActionProvider` reads from the existing `DiagnosticCollection` instead of re-running validation on every code-action request
 - **Module-level constants**: `SYMBOL_IMPORT_EXEMPTIONS`, `CATEGORY_ORDER`, and `documentText` are computed once per validation run, not per import
+- **Pre-computed Rule 6 conflict maps**: `originalNameCounts` and `allEffectiveNames` are built once before the validation loop, enabling O(1) conflict detection for `unnecessary-from-alias` instead of scanning all imports per alias
+- **Shared exclude pattern**: `WORKSPACE_EXCLUDE_PATTERN` is exported from `module-resolver.ts` and reused by `pyproject-reader.ts`, ensuring consistent directory exclusion without duplication
+- **Consolidated symbol replacement**: `replaceSymbolUsagesOutsideImports()` in `fix-imports.ts` is a single shared function used by wildcard, alias, and symbol-import fix steps — eliminating code duplication
 - **Sort iteration cap**: Sort iterations are capped at 5 to prevent infinite loops

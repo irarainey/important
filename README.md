@@ -27,6 +27,7 @@ A Visual Studio Code extension that validates and formats Python import statemen
 | Duplicate imports            | Multiple identical imports are merged                        | ✅       |
 | Correct ordering             | `__future__` → stdlib → third-party → first-party → local    | ✅       |
 | Sorted within groups         | `import` before `from`, then alphabetically                  | ✅       |
+| Misplaced imports            | Imports after the top block are moved to the top             | ✅       |
 
 ### Example
 
@@ -317,7 +318,9 @@ important/
 │           └── utils/utils.py      	# Relative imports, symbol imports
 ├── docs/
 │   ├── ARCHITECTURE.md        			# Developer documentation
-│   └── CHANGELOG.md               		# Release changelog
+│   ├── GOOGLE-STYLE-GUIDE.md      		# Google Python Style Guide import rules reference
+│   └── PEP8.md                    		# PEP 8 import standards reference
+├── CHANGELOG.md               			# Release changelog
 ├── output/                    			# Compiled output (generated)
 ├── package.json               			# Extension manifest & dependencies
 ├── tsconfig.json              			# TypeScript configuration
