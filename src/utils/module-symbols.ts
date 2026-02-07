@@ -8,7 +8,7 @@
 /**
  * Mapping of module names to their exported symbols.
  */
-export const MODULE_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
+const MODULE_SYMBOLS: Readonly<Record<string, readonly string[]>> = {
     'os.path': [
         'abspath', 'altsep', 'basename', 'commonpath', 'commonprefix',
         'curdir', 'defpath', 'devnull', 'dirname', 'exists', 'expanduser',

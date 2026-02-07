@@ -19,7 +19,7 @@ export function isNameUsedOutsideLines(
     document: vscode.TextDocument,
     documentText: string,
     name: string,
-    excludeLines: Set<number>,
+    excludeLines: ReadonlySet<number>,
 ): boolean {
     const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
 

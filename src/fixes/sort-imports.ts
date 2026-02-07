@@ -1,10 +1,6 @@
 import * as vscode from 'vscode';
-import type { ImportCategory } from '../types';
+import type { ImportCategory, ValidationResult } from '../types';
 import { CATEGORY_ORDER } from '../types';
-import { parseImports } from '../validation/import-parser';
-import { getImportCategory } from '../validation/import-validator';
-import { isNameUsedOutsideLines } from '../utils/text-utils';
-import { ensureModuleResolverReady } from '../utils/module-resolver';
 
 interface NormalizedImport {
     module: string;
@@ -17,49 +13,34 @@ interface NormalizedImport {
 
 /**
  * Sorts all imports in a document according to Google style.
+ *
+ * Consumes a pre-computed {@link ValidationResult} so that parsing,
+ * categorisation, and unused-name detection are performed exactly once
+ * and shared with diagnostics — eliminating duplicate scans.
+ *
  * Expands multi-imports, removes unused, groups by category, sorts alphabetically.
  */
-export async function sortImportsInDocument(document: vscode.TextDocument): Promise<boolean> {
-    // Ensure the module resolver cache is populated so that
-    // getImportCategory can distinguish local from third-party.
-    await ensureModuleResolverReady();
-
-    const imports = parseImports(document);
+export async function sortImportsInDocument(
+    document: vscode.TextDocument,
+    result: ValidationResult,
+): Promise<boolean> {
+    const { imports, categories, unusedNames } = result;
     if (imports.length === 0) {
         return false;
-    }
-
-    const documentText = document.getText();
-
-    // Collect all import line numbers for usage checking
-    const importLineSet = new Set<number>();
-    for (const imp of imports) {
-        for (let line = imp.line; line <= imp.endLine; line++) {
-            importLineSet.add(line);
-        }
-    }
-
-    // Find the contiguous import block range
-    const firstImportLine = Math.min(...imports.map(i => i.line));
-    let lastImportLine = firstImportLine;
-    for (const imp of imports) {
-        if (imp.endLine > lastImportLine) {
-            lastImportLine = imp.endLine;
-        }
     }
 
     // Normalize imports: expand multi-imports, filter unused
     const normalized: NormalizedImport[] = [];
 
     for (const imp of imports) {
-        const category = getImportCategory(imp, document.uri);
+        const category = categories.get(imp)!;
+        const unused = new Set(unusedNames.get(imp) ?? []);
 
         if (imp.type === 'import') {
             // Expand 'import os, sys' into separate imports
             for (const name of imp.names) {
-                const alias = imp.aliases.get(name);
-                const usageName = alias ?? name;
-                if (isNameUsedOutsideLines(document, documentText, usageName, importLineSet)) {
+                if (!unused.has(name)) {
+                    const alias = imp.aliases.get(name);
                     const entryAliases = new Map<string, string>();
                     if (alias) entryAliases.set(name, alias);
                     normalized.push({
@@ -91,12 +72,8 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
                 category,
             });
         } else {
-            // Filter to only used names
-            const usedNames = imp.names.filter(name => {
-                const alias = imp.aliases.get(name);
-                const usageName = alias ?? name;
-                return isNameUsedOutsideLines(document, documentText, usageName, importLineSet);
-            });
+            // Filter to only used names (those NOT in the unused set)
+            const usedNames = imp.names.filter(name => !unused.has(name));
             if (usedNames.length > 0) {
                 const filteredAliases = new Map<string, string>();
                 for (const name of usedNames) {
@@ -189,18 +166,62 @@ export async function sortImportsInDocument(document: vscode.TextDocument): Prom
 
     const sortedImportsText = sortedBlocks.join('\n\n');
 
-    // Check if already sorted (no change needed)
-    const startPos = new vscode.Position(firstImportLine, 0);
-    const endPos = new vscode.Position(lastImportLine, document.lineAt(lastImportLine).text.length);
-    const importRange = new vscode.Range(startPos, endPos);
-    const currentText = document.getText(importRange);
+    // Separate top-block and misplaced imports
+    const topBlockImports = imports.filter(imp => !imp.misplaced);
+    const misplacedImports = imports.filter(imp => imp.misplaced);
 
-    if (currentText === sortedImportsText) {
-        return false; // Already sorted
+    // Find the contiguous top-block range (only among non-misplaced imports)
+    const topFirstLine = topBlockImports.length > 0
+        ? Math.min(...topBlockImports.map(i => i.line))
+        : 0;
+    let topLastLine = topFirstLine;
+    for (const imp of topBlockImports) {
+        if (imp.endLine > topLastLine) {
+            topLastLine = imp.endLine;
+        }
     }
 
+    // When there are no misplaced imports, check if the top block is already sorted
+    if (misplacedImports.length === 0) {
+        const startPos = new vscode.Position(topFirstLine, 0);
+        const endPos = new vscode.Position(topLastLine, document.lineAt(topLastLine).text.length);
+        const importRange = new vscode.Range(startPos, endPos);
+        const currentText = document.getText(importRange);
+
+        if (currentText === sortedImportsText) {
+            return false; // Already sorted
+        }
+
+        const edit = new vscode.WorkspaceEdit();
+        edit.replace(document.uri, importRange, sortedImportsText);
+        return vscode.workspace.applyEdit(edit);
+    }
+
+    // Misplaced imports exist — delete them from their original
+    // positions and merge into the sorted top block.
+    //
+    // Process deletions bottom-up so that earlier line numbers remain
+    // valid as we delete later lines.
     const edit = new vscode.WorkspaceEdit();
-    edit.replace(document.uri, importRange, sortedImportsText);
+
+    const sortedMisplaced = [...misplacedImports].sort((a, b) => b.line - a.line);
+    for (const imp of sortedMisplaced) {
+        const startPos = new vscode.Position(imp.line, 0);
+        // Delete the import line(s) and the following newline so we
+        // don't leave blank gaps in the file body.
+        const endLine = imp.endLine + 1 < document.lineCount
+            ? imp.endLine + 1
+            : imp.endLine;
+        const endPos = imp.endLine + 1 < document.lineCount
+            ? new vscode.Position(endLine, 0)
+            : new vscode.Position(imp.endLine, document.lineAt(imp.endLine).text.length);
+        edit.delete(document.uri, new vscode.Range(startPos, endPos));
+    }
+
+    // Replace the top-block range with the merged sorted imports
+    const topStart = new vscode.Position(topFirstLine, 0);
+    const topEnd = new vscode.Position(topLastLine, document.lineAt(topLastLine).text.length);
+    edit.replace(document.uri, new vscode.Range(topStart, topEnd), sortedImportsText);
 
     return vscode.workspace.applyEdit(edit);
 }

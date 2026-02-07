@@ -20,6 +20,8 @@ export interface ImportStatement {
     readonly endLine: number;
     /** The original text of the import line */
     readonly text: string;
+    /** `true` when the import was found outside the top-level import block and should be moved to the top. */
+    readonly misplaced: boolean;
 }
 
 /**
@@ -52,7 +54,8 @@ export type ImportIssueCode =
     | 'unnecessary-from-alias'
     | 'unused-import'
     | 'wrong-import-order'
-    | 'wrong-alphabetical-order';
+    | 'wrong-alphabetical-order'
+    | 'misplaced-import';
 
 /**
  * Import category for grouping and ordering.
@@ -81,6 +84,29 @@ export interface ScopedFirstParty {
     readonly dirPath: string;
     /** Module root names declared as first-party in that scope. */
     readonly modules: readonly string[];
+}
+
+/**
+ * Comprehensive validation result from a single scan of a document's imports.
+ *
+ * This is the **single source of truth** consumed by diagnostics, fixes,
+ * and sorting — eliminating duplicate scans and ensuring consistency
+ * between what is reported and what is fixed.
+ */
+export interface ValidationResult {
+    /** All parsed import statements in document order. */
+    readonly imports: readonly ImportStatement[];
+    /** Category assigned to each import statement. */
+    readonly categories: ReadonlyMap<ImportStatement, ImportCategory>;
+    /** All detected issues. */
+    readonly issues: readonly ImportIssue[];
+    /**
+     * Original names from each import that are not referenced outside
+     * the import block.  Empty arrays for `__future__` and wildcard imports.
+     */
+    readonly unusedNames: ReadonlyMap<ImportStatement, readonly string[]>;
+    /** Line numbers occupied by import statements (used to exclude from usage checks). */
+    readonly importLines: ReadonlySet<number>;
 }
 
 /**

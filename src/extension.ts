@@ -1,14 +1,13 @@
 import * as vscode from 'vscode';
-import { validateImports } from './validation/import-validator';
+import { getValidation, invalidateValidation, disposeValidationCache } from './validation/validation-cache';
 import { issuesToDiagnostics } from './validation/diagnostics';
 import { ImportCodeActionProvider } from './providers/code-action-provider';
 import { ImportHoverProvider } from './providers/hover-provider';
 import { fixAllImports } from './fixes/fix-imports';
 import { initModuleResolver, disposeModuleResolver, ensureModuleResolverReady, setGlobalFirstPartyModules, setScopedFirstPartyModules, getFirstPartyModulesSummary } from './utils/module-resolver';
 import { readFirstPartyFromPyproject } from './utils/pyproject-reader';
-import { createOutputChannel, log } from './utils/logger';
-import type { ImportantConfig, ImportIssue } from './types';
-import { logError } from './utils/logger';
+import { createOutputChannel, log, logError } from './utils/logger';
+import type { ImportantConfig } from './types';
 
 /** Diagnostic collection for import validation issues */
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -123,10 +122,11 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Clear diagnostics when document is closed (always active)
+    // Clear diagnostics and validation cache when document is closed (always active)
     context.subscriptions.push(
         vscode.workspace.onDidCloseTextDocument(doc => {
             diagnosticCollection.delete(doc.uri);
+            invalidateValidation(doc.uri);
         })
     );
 
@@ -188,6 +188,7 @@ export function deactivate(): void {
     configDependentDisposables = [];
 
     disposeModuleResolver();
+    disposeValidationCache();
     diagnosticCollection?.dispose();
 }
 
@@ -297,13 +298,13 @@ function scheduleValidation(document: vscode.TextDocument): void {
  * Ensures the module resolver is ready before running validation
  * so that import categorisation (stdlib / third-party / local) is accurate.
  */
-export function validateDocument(document: vscode.TextDocument): void {
+function validateDocument(document: vscode.TextDocument): void {
     if (document.languageId !== 'python') {
         return;
     }
 
     void ensureModuleResolverReady().then(() => {
-        const issues: ImportIssue[] = validateImports(document);
+        const { issues } = getValidation(document);
         const diagnostics = issuesToDiagnostics(issues);
         diagnosticCollection.set(document.uri, diagnostics);
     });

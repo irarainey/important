@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import type { ImportStatement, ImportIssue, ImportCategory } from '../types';
+import type { ImportStatement, ImportIssue, ImportCategory, ValidationResult } from '../types';
 import { CATEGORY_ORDER } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
 import { escapeRegex, isNameUsedOutsideLines } from '../utils/text-utils';
@@ -30,6 +30,15 @@ const STANDARD_IMPORT_ALIASES: ReadonlyMap<string, string> = new Map([
 ]);
 
 /**
+ * Builds a Range that spans the full extent of an import statement,
+ * correctly covering multi-line imports (those using parentheses).
+ */
+function importRange(document: vscode.TextDocument, imp: ImportStatement): vscode.Range {
+    const endLineText = document.lineAt(imp.endLine).text;
+    return new vscode.Range(imp.line, 0, imp.endLine, endLineText.length);
+}
+
+/**
  * Determines the category of an import for grouping purposes.
  *
  * Categories (Google Python Style Guide section 3.13 + Ruff first-party):
@@ -39,17 +48,7 @@ const STANDARD_IMPORT_ALIASES: ReadonlyMap<string, string> = new Map([
  *  4. first-party — explicitly configured project modules
  *  5. local       — relative imports & workspace-detected modules
  */
-
-/**
- * Builds a Range that spans the full extent of an import statement,
- * correctly covering multi-line imports (those using parentheses).
- */
-function importRange(document: vscode.TextDocument, imp: ImportStatement): vscode.Range {
-    const endLineText = document.lineAt(imp.endLine).text;
-    return new vscode.Range(imp.line, 0, imp.endLine, endLineText.length);
-}
-
-export function getImportCategory(importStmt: ImportStatement, documentUri?: vscode.Uri): ImportCategory {
+function getImportCategory(importStmt: ImportStatement, documentUri?: vscode.Uri): ImportCategory {
     // __future__ imports always come first (Google style 3.13)
     if (importStmt.module === '__future__') {
         return 'future';
@@ -78,42 +77,67 @@ export function getImportCategory(importStmt: ImportStatement, documentUri?: vsc
 }
 
 /**
- * Builds a set of line numbers covered by an import statement.
- */
-function importLineSet(imp: ImportStatement): Set<number> {
-    const lines = new Set<number>();
-    for (let line = imp.line; line <= imp.endLine; line++) {
-        lines.add(line);
-    }
-    return lines;
-}
-
-/**
  * Finds names from an import statement that are not used in the document.
- * When a name has an alias (`as` clause), the alias is checked for usage
- * instead of the original name.
+ *
+ * Uses the full set of import line numbers so that a name appearing
+ * only inside another import statement is correctly treated as unused.
+ * When a name has an alias (`as` clause), the alias is checked for
+ * usage instead of the original name.
  */
-function findUnusedNames(document: vscode.TextDocument, documentText: string, imp: ImportStatement): string[] {
-    const excludeLines = importLineSet(imp);
+function findUnusedNames(
+    document: vscode.TextDocument,
+    documentText: string,
+    imp: ImportStatement,
+    allImportLines: ReadonlySet<number>,
+): string[] {
     return imp.names.filter(name => {
         if (name === '*') return false;
         const usageName = imp.aliases.get(name) ?? name;
-        return !isNameUsedOutsideLines(document, documentText, usageName, excludeLines);
+        return !isNameUsedOutsideLines(document, documentText, usageName, allImportLines);
     });
 }
 
 /**
  * Validates import statements according to Google Python Style Guide rules.
+ *
+ * Returns a {@link ValidationResult} containing parsed imports, their
+ * categories, detected issues, and unused-name mappings.  This is the
+ * **single scan** that should be consumed by diagnostics, fixes, and
+ * the import sorter — ensuring they all operate on the same data.
  */
-export function validateImports(document: vscode.TextDocument): ImportIssue[] {
+export function validateImports(document: vscode.TextDocument): ValidationResult {
     const issues: ImportIssue[] = [];
     const imports = parseImports(document);
     const documentText = document.getText();
 
-    // Cache import categories — avoids recomputing in Rules 5 and 6
-    const categoryCache = new Map<ImportStatement, ImportCategory>();
+    // Build the set of ALL import line numbers once — used to exclude
+    // import lines from usage checks so that a name appearing only
+    // inside another import statement is not treated as "used".
+    const importLines = new Set<number>();
     for (const imp of imports) {
-        categoryCache.set(imp, getImportCategory(imp, document.uri));
+        for (let line = imp.line; line <= imp.endLine; line++) {
+            importLines.add(line);
+        }
+    }
+
+    // Compute import categories once — reused across Rules 4, 8, 9
+    // and consumed downstream by the sorter and fix commands.
+    const categories = new Map<ImportStatement, ImportCategory>();
+    for (const imp of imports) {
+        categories.set(imp, getImportCategory(imp, document.uri));
+    }
+
+    // Pre-compute unused names for every import — reused in Rule 7 and
+    // by the sorter (which filters unused names when rebuilding the
+    // import block).  Using `importLines` (all import lines) ensures
+    // consistent results everywhere.
+    const unusedNamesMap = new Map<ImportStatement, readonly string[]>();
+    for (const imp of imports) {
+        if (imp.module === '__future__' || imp.names.includes('*')) {
+            unusedNamesMap.set(imp, []);
+        } else {
+            unusedNamesMap.set(imp, findUnusedNames(document, documentText, imp, importLines));
+        }
     }
 
     for (const imp of imports) {
@@ -234,7 +258,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
             }
         }
 
-        // Rule 8: Validate `import y as z` aliases (Google style 2.2.4)
+        // Rule 5: Validate `import y as z` aliases (Google style 2.2.4)
         // Only standard abbreviations are permitted for plain import aliases.
         if (imp.type === 'import' && imp.aliases.size > 0) {
             for (const [original, alias] of imp.aliases) {
@@ -255,7 +279,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
             }
         }
 
-        // Rule 9: Validate `from x import y as z` aliases (Google style 2.2.4)
+        // Rule 6: Validate `from x import y as z` aliases (Google style 2.2.4)
         // Aliasing should only be used when a naming conflict or length
         // warrants it.  We can automatically detect duplicate-name conflicts
         // across the file's imports; the remaining conditions are subjective
@@ -286,9 +310,8 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
             }
         }
 
-        // Rule 7: Check for unused imports
-        // Skip __future__ imports — their names are directives, not symbols
-        const unusedNames = imp.module === '__future__' ? [] : findUnusedNames(document, documentText, imp);
+        // Rule 7: Check for unused imports (uses pre-computed map)
+        const unusedNames = unusedNamesMap.get(imp) ?? [];
         if (unusedNames.length > 0 && !imp.names.includes('*')) {
             if (unusedNames.length === imp.names.length) {
                 // All names are unused - entire import is unused
@@ -313,13 +336,28 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
                 });
             }
         }
+
+        // Rule 10: Misplaced import (not in the top-level import block)
+        if (imp.misplaced) {
+            issues.push({
+                code: 'misplaced-import',
+                message: 'Import should be at the top of the file (Google Python Style Guide). It will be moved when imports are fixed.',
+                severity: vscode.DiagnosticSeverity.Warning,
+                range: importRange(document, imp),
+                import: imp,
+            });
+        }
     }
 
-    // Rule 5: Check import ordering (__future__ → stdlib → third-party → first-party → local)
+    // Rules 8-9 only apply to top-block imports — misplaced imports will
+    // be relocated by the sorter, so checking their order is meaningless.
+    const topBlockImports = imports.filter(imp => !imp.misplaced);
+
+    // Rule 8: Check import ordering (__future__ → stdlib → third-party → first-party → local)
     let lastCategory: ImportCategory | undefined;
 
-    for (const imp of imports) {
-        const category = categoryCache.get(imp)!;
+    for (const imp of topBlockImports) {
+        const category = categories.get(imp)!;
         const currentCategoryIndex = CATEGORY_ORDER.indexOf(category);
         const lastCategoryIndex = lastCategory ? CATEGORY_ORDER.indexOf(lastCategory) : -1;
 
@@ -338,12 +376,12 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
         }
     }
 
-    // Rule 6: Check alphabetical ordering within groups
+    // Rule 9: Check alphabetical ordering within groups
     let currentGroupCategory: ImportCategory | undefined;
     let currentGroupImports: ImportStatement[] = [];
 
-    for (const imp of imports) {
-        const category = categoryCache.get(imp)!;
+    for (const imp of topBlockImports) {
+        const category = categories.get(imp)!;
 
         if (category !== currentGroupCategory) {
             // Check alphabetical order of previous group
@@ -357,7 +395,7 @@ export function validateImports(document: vscode.TextDocument): ImportIssue[] {
     // Check the last group
     checkAlphabeticalOrder(document, currentGroupImports, issues);
 
-    return issues;
+    return { imports, categories, issues, unusedNames: unusedNamesMap, importLines };
 }
 
 /**

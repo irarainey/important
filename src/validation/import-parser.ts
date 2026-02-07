@@ -53,6 +53,7 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
             line: lineNumber,
             endLine: lineNumber,
             text: trimmed,
+            misplaced: false,
         };
     }
 
@@ -71,6 +72,7 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
             line: lineNumber,
             endLine: lineNumber,
             text: trimmed,
+            misplaced: false,
         };
     }
 
@@ -128,6 +130,7 @@ function parseMultilineImport(
             line: startLine,
             endLine,
             text: fullText.trim(),
+            misplaced: false,
         },
         endLine,
     };
@@ -136,16 +139,24 @@ function parseMultilineImport(
 /**
  * Parses all import statements from a document.
  *
- * Stops scanning once the import block ends (first non-import,
- * non-blank, non-comment line that isn't a docstring or `if
- * TYPE_CHECKING` guard), since Python imports must appear at the
- * top of the module.
+ * Scans the **entire** file so that imports scattered below the
+ * top-level block are still detected.  Imports found after the
+ * top-level block ends are marked with `misplaced: true` so that
+ * diagnostics can flag them and the sorter can relocate them.
+ *
+ * The top-level block is defined as the contiguous run of import
+ * statements (plus blank lines, comments, docstrings, `__all__`,
+ * and `if TYPE_CHECKING` guards) that begins with the first import
+ * in the file.  Once 2 consecutive non-permitted, non-import lines
+ * are seen the block is considered closed; any imports found after
+ * that point are misplaced.
  */
 export function parseImports(document: vscode.TextDocument): ImportStatement[] {
     const imports: ImportStatement[] = [];
     let i = 0;
     let foundFirstImport = false;
     let consecutiveNonImportLines = 0;
+    let topBlockEnded = false;
 
     while (i < document.lineCount) {
         const line = document.lineAt(i).text;
@@ -155,9 +166,11 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
         if (line.includes('import (') && !line.includes(')')) {
             const multiline = parseMultilineImport(document, i);
             if (multiline) {
-                imports.push(multiline.import);
-                foundFirstImport = true;
-                consecutiveNonImportLines = 0;
+                imports.push({ ...multiline.import, misplaced: topBlockEnded });
+                if (!topBlockEnded) {
+                    foundFirstImport = true;
+                    consecutiveNonImportLines = 0;
+                }
                 i = multiline.endLine + 1;
                 continue;
             }
@@ -166,10 +179,12 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
         // Try single-line parsing
         const parsed = parseImportLine(line, i);
         if (parsed) {
-            imports.push(parsed);
-            foundFirstImport = true;
-            consecutiveNonImportLines = 0;
-        } else if (foundFirstImport) {
+            imports.push({ ...parsed, misplaced: topBlockEnded });
+            if (!topBlockEnded) {
+                foundFirstImport = true;
+                consecutiveNonImportLines = 0;
+            }
+        } else if (foundFirstImport && !topBlockEnded) {
             // Allow blank lines, comments, docstrings, __all__, and
             // TYPE_CHECKING guards between/after imports
             const isPermitted = trimmed === ''
@@ -183,9 +198,10 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
                 consecutiveNonImportLines = 0;
             } else {
                 consecutiveNonImportLines++;
-                // Stop after 2 consecutive non-import lines to avoid false positives
+                // After 2 consecutive non-import lines the top block is over,
+                // but we keep scanning for misplaced imports.
                 if (consecutiveNonImportLines >= 2) {
-                    break;
+                    topBlockEnded = true;
                 }
             }
         }

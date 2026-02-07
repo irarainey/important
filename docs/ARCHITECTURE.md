@@ -17,11 +17,12 @@ src/
 │   └── hover-provider.ts           # Hover information for diagnostics
 ├── validation/
 │   ├── import-parser.ts            # Parse Python import statements
-│   ├── import-validator.ts         # Validate against style rules
+│   ├── import-validator.ts         # Single-scan validation producing ValidationResult
+│   ├── validation-cache.ts         # Version-keyed cache for ValidationResult
 │   └── diagnostics.ts              # Convert issues to VS Code diagnostics
 ├── fixes/
-│   ├── fix-imports.ts              # Main fix orchestration
-│   └── sort-imports.ts             # Sorting, deduplication, unused removal
+│   ├── fix-imports.ts              # Main fix orchestration (uses cache)
+│   └── sort-imports.ts             # Sorting, deduplication, unused removal (consumes ValidationResult)
 └── utils/
     ├── logger.ts                   # Output channel logging utilities
     ├── module-resolver.ts          # Workspace Python module detection
@@ -35,6 +36,10 @@ src/
 
 ### Validation Flow
 
+A **single scan** produces a `ValidationResult` that is cached by document
+URI and version. Both diagnostics and fixes consume the same cached result,
+ensuring they always agree on the set of issues.
+
 ```
 Document Change
       │
@@ -45,17 +50,17 @@ Document Change
       │
       ▼
 ┌───────────────────────┐
-│  parseImports()       │  Extract ImportStatement[]
+│  getValidation()      │  Returns cached or fresh ValidationResult
+│  (validation-cache)   │  (keyed by document URI + version)
 └───────────────────────┘
-      │
+      │  cache miss ──► validateImports()
+      │                  ├── parseImports()      → ImportStatement[]
+      │                  ├── getImportCategory()  → category map
+      │                  ├── findUnusedNames()    → unused-names map
+      │                  └── apply rules          → ImportIssue[]
       ▼
 ┌───────────────────────┐
-│  validateImports()    │  Apply rules, produce ImportIssue[]
-└───────────────────────┘
-      │
-      ▼
-┌───────────────────────┐
-│  issuesToDiagnostics()│  Convert to vscode.Diagnostic[]
+│  issuesToDiagnostics()│  Convert issues to vscode.Diagnostic[]
 └───────────────────────┘
       │
       ▼
@@ -66,6 +71,11 @@ Document Change
 
 ### Fix Flow
 
+The fix command also uses `getValidation()` so that the issues it acts on
+are **identical** to the diagnostics the user sees. After each mutation
+the document version changes, so the next `getValidation()` call
+automatically re-scans.
+
 ```
 "Fix Imports" Command
       │
@@ -74,10 +84,15 @@ Document Change
 │  fixAllImports()       │
 └────────────────────────┘
       │
+      ├──► getValidation(document)  ◄── same cached result as diagnostics
+      │
       ├──► Fix wildcard imports (if known symbols exist)
       │    - Scan for used symbols from MODULE_SYMBOLS
       │    - Replace symbol usages with qualified names
       │    - Convert to module import
+      │    - Document version changes → cache invalidated
+      │
+      ├──► getValidation(freshDoc)  ◄── re-scans after wildcard edits
       │
       ├──► Fix import-modules-not-symbols
       │    - Detect symbol imports via three-tier approach:
@@ -87,15 +102,18 @@ Document Change
       │    - Top-level: from pkg import Cls → import pkg
       │    - Deep: from pkg.mod import Cls → from pkg import mod
       │    - Replace symbol usages with qualified names
+      │    - Document version changes → cache invalidated
       │
-      └──► sortImportsInDocument() (up to 5 iterations)
+      └──► sortImportsInDocument(freshDoc, getValidation(freshDoc))
+           - Receives pre-computed ValidationResult (no re-scan)
            - Expand multi-imports
-           - Remove unused imports (alias-aware)
+           - Remove unused imports (from pre-computed unusedNames map)
            - Deduplicate imports (preserves aliases)
-           - Group by category
+           - Group by category (from pre-computed categories map)
            - Sort: `import` before `from`, then alphabetically
            - Reconstruct with `as` clauses
            - Apply edit if changed
+           - Up to 5 iterations until stable
 ```
 
 ## Core Types
@@ -114,6 +132,7 @@ interface ImportStatement {
 	line: number; // Start line number (0-based)
 	endLine: number; // End line number (same as line for single-line imports)
 	text: string; // Original import text (may contain newlines for multi-line)
+	misplaced: boolean; // true if found after the top-level import block
 }
 ```
 
@@ -131,6 +150,25 @@ interface ImportIssue {
 	suggestedFix?: string; // Replacement text (empty = delete)
 }
 ```
+
+### ValidationResult
+
+Comprehensive result from a single scan — the **single source of truth**
+consumed by diagnostics, fixes, and the import sorter:
+
+```typescript
+interface ValidationResult {
+	imports: readonly ImportStatement[]; // Parsed imports in document order
+	categories: ReadonlyMap<ImportStatement, ImportCategory>; // Category per import
+	issues: readonly ImportIssue[]; // All detected issues
+	unusedNames: ReadonlyMap<ImportStatement, readonly string[]>; // Unused names per import
+	importLines: ReadonlySet<number>; // Line numbers occupied by imports
+}
+```
+
+The result is cached by document URI and version in `validation-cache.ts`.
+When the document changes (new version), the next `getValidation()` call
+automatically recomputes.
 
 ### ImportCategory
 
@@ -183,6 +221,10 @@ First-party resolution (`isFirstPartyModule(moduleName, documentUri?)`):
 | `import-modules-not-symbols` | Import modules, not symbols                | Info     | Refactor to module access       |
 | `non-standard-import-alias`  | `import y as z` only for standard abbrevs  | Info     | Suggest standard alias or plain |
 | `unnecessary-from-alias`     | `from x import y as z` only when justified | Info     | —                               |
+| `unused-import`              | Remove unused imports                      | Hint     | Delete or trim                  |
+| `wrong-import-order`         | stdlib → third-party → local               | Info     | Reorder                         |
+| `wrong-alphabetical-order`   | Alphabetical within groups                 | Info     | Reorder                         |
+| `misplaced-import`           | Import not in the top-level block          | Warning  | Move to top and reorder         |
 
 The `import-modules-not-symbols` rule uses a three-tier approach to distinguish module imports from symbol imports:
 
@@ -195,10 +237,6 @@ Exemptions per Google style 2.2.4.1: `typing`, `collections.abc`, `typing_extens
 The `non-standard-import-alias` rule enforces that `import y as z` is only used when `z` is a recognised standard abbreviation (e.g. `import numpy as np`). A built-in list of well-known aliases is used for validation.
 
 The `unnecessary-from-alias` rule flags `from x import y as z` when no other import in the file imports a name `y`, indicating there is no detectable naming conflict. The remaining subjective conditions (long name, too generic, conflicts with local definitions) are noted in the diagnostic message for the developer to evaluate.
-
-| `unused-import` | Remove unused imports | Hint | Delete or trim |
-| `wrong-import-order` | stdlib → third-party → local | Info | Reorder |
-| `wrong-alphabetical-order` | Alphabetical within groups | Info | Reorder |
 
 ## Key Algorithms
 
@@ -226,20 +264,21 @@ The parser:
 3. Tracks relative import level (number of dots)
 4. Collects multi-line imports by tracking parentheses
 5. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
-6. Stops scanning after the import block ends — once the first import is found, 2 consecutive non-import, non-blank, non-comment lines terminate the scan (blank lines, comments, docstrings, `__all__`, and `if TYPE_CHECKING` guards are permitted between imports)
+6. Scans the **entire file** — the top-level import block is determined by the 2-consecutive-non-import-line heuristic (blank lines, comments, docstrings, `__all__`, and `if TYPE_CHECKING` guards are permitted), but imports found after the block closes are still parsed and marked with `misplaced: true`
+7. Misplaced imports are flagged by the validator (Rule 10) and relocated to the top by the sorter
 
 ### Symbol Usage Detection (`text-utils.ts`)
 
-The shared `isNameUsedOutsideLines()` function determines if an imported name is referenced anywhere in the document outside the import lines:
+The shared `isNameUsedOutsideLines()` function determines if an imported name is referenced anywhere in the document outside the import block:
 
 1. Create regex pattern: `\b{name}\b` (word boundary match)
 2. Search entire document text
 3. For each match:
-    - Skip if on an excluded line (the import's line range, via `Set<number>`)
+    - Skip if on an excluded line (the **entire** import block's line range, via `ReadonlySet<number>` — ensuring a name appearing only in another import statement is not treated as "used")
     - Skip if in a string or comment (via `isInStringOrComment` — handles `#` comments, single/double/triple quotes, and f-string expressions)
 4. Return true if any valid usage found
 
-This function is used by both `import-validator.ts` (unused import detection) and `sort-imports.ts` (filtering unused imports during sorting).
+The `importLines` set in `ValidationResult` is computed once and shared across all consumers, guaranteeing consistent unused-import detection.
 
 ### Wildcard Import Fixing (`fix-imports.ts`)
 
@@ -258,14 +297,17 @@ Symbol detection skips:
 
 ### Import Sorting (`sort-imports.ts`)
 
-1. **Parse** all imports in document
+Receives a pre-computed `ValidationResult` — **no independent scanning**:
+
+1. **Read** parsed imports, categories, and unused names from `ValidationResult`
 2. **Normalize**: Expand `import os, sys` → separate imports
-3. **Filter**: Remove imports where all names are unused (preserves `__future__` directives). When a name has an `as` alias, the alias is checked for usage instead of the original name.
+3. **Filter**: Remove imports where all names are unused (uses pre-computed `unusedNames` map; preserves `__future__` directives). When a name has an `as` alias, the alias is checked for usage instead of the original name.
 4. **Deduplicate**: Merge `from X import a` and `from X import b` (aliases are preserved during merging)
-5. **Categorize**: Assign each to future / stdlib / third-party / first-party / local
+5. **Categorize**: Use pre-computed `categories` map (future / stdlib / third-party / first-party / local)
 6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case) — matching Ruff/isort default behaviour
 7. **Format**: Join with blank lines between categories, reconstructing `as` clauses where present
-8. **Apply**: Replace import block if changed
+8. **Relocate**: If misplaced imports exist, delete them from their scattered positions (bottom-up to preserve line numbers) and merge into the top block
+9. **Apply**: Replace top-block range with the sorted text (or no-op if already correct)
 
 ### String/Comment Detection (`text-utils.ts`)
 
@@ -304,7 +346,8 @@ The `isInStringOrComment` function handles:
 2. Clear pending validation timers
 3. Dispose config-dependent handlers
 4. Dispose module resolver
-5. Dispose diagnostic collection
+5. Clear validation cache
+6. Dispose diagnostic collection
 
 ## Logging
 
@@ -376,11 +419,12 @@ To support wildcard fixing for a new module:
 ## Performance Considerations
 
 - **Validation debouncing**: Validation is debounced (50ms) to avoid excessive CPU usage during typing
-- **Import category caching**: `getImportCategory()` results are cached per `validateImports()` call, avoiding redundant recomputation across Rules 5 and 6
+- **Single scan / cached result**: `validateImports()` returns a `ValidationResult` that is cached by document URI + version in `validation-cache.ts`. Diagnostics, the fix command, and the import sorter all consume the same cached result — no duplicate scans
+- **Import category caching**: Categories are computed once per scan and stored in `ValidationResult.categories`, avoiding redundant recomputation
+- **Unused-name consistency**: Unused-name detection excludes **all** import lines (not just the current import's lines), preventing false positives from names appearing in other import statements. Results are stored in `ValidationResult.unusedNames` and shared
 - **Index-based module lookups**: `isLocalModule()` and `isModuleFile()` use pre-built indices (`rootModuleIndex` and `moduleFileSuffixes`) for O(1) lookups instead of iterating all module paths
 - **Incremental cache updates**: File creation adds a single entry to the module cache; file deletion rebuilds indices (since shared segments can't be removed incrementally)
-- **Early import-block termination**: The parser stops scanning after the import block ends, avoiding full-document traversal for large Python files
+- **Full-file import scanning**: The parser scans the entire file to detect misplaced imports after the top block. Imports found later in the file are marked `misplaced: true` and relocated to the top on fix
 - **Diagnostic reuse**: The `CodeActionProvider` reads from the existing `DiagnosticCollection` instead of re-running validation on every code-action request
-- **Shared usage detection**: A single `isNameUsedOutsideLines()` function in `text-utils.ts` is used by both the validator and the sorter, eliminating code duplication
 - **Module-level constants**: `SYMBOL_IMPORT_EXEMPTIONS`, `CATEGORY_ORDER`, and `documentText` are computed once per validation run, not per import
 - **Sort iteration cap**: Sort iterations are capped at 5 to prevent infinite loops

@@ -1,6 +1,5 @@
 import * as vscode from 'vscode';
-import { validateImports } from '../validation/import-validator';
-import { parseImports } from '../validation/import-parser';
+import { getValidation } from '../validation/validation-cache';
 import { isInStringOrComment, escapeRegex } from '../utils/text-utils';
 import { getModuleSymbols, hasModuleSymbols } from '../utils/module-symbols';
 import { sortImportsInDocument } from './sort-imports';
@@ -17,7 +16,7 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
     await ensureModuleResolverReady();
 
     const document = editor.document;
-    const issues = validateImports(document);
+    const { issues } = getValidation(document);
     let madeChanges = false;
 
     const relativePath = vscode.workspace.asRelativePath(document.uri);
@@ -105,8 +104,8 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
     const symbolIssues = issues.filter(i => i.code === 'import-modules-not-symbols');
     if (symbolIssues.length > 0) {
         const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
-        const freshIssues = validateImports(freshDoc);
-        const currentSymbolIssues = freshIssues.filter(i => i.code === 'import-modules-not-symbols');
+        const freshResult = getValidation(freshDoc);
+        const currentSymbolIssues = freshResult.issues.filter(i => i.code === 'import-modules-not-symbols');
 
         // Collect transformation info before modifying the document
         const transformations: Array<{
@@ -143,20 +142,12 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         // Phase 2: Replace symbol usages in the updated document
         const updatedDoc = await vscode.workspace.openTextDocument(editor.document.uri);
         const updatedText = updatedDoc.getText();
-        const updatedImports = parseImports(updatedDoc);
-
-        // Build a set of lines that are part of import statements (to skip)
-        const importLineSet = new Set<number>();
-        for (const imp of updatedImports) {
-            for (let line = imp.line; line <= imp.endLine; line++) {
-                importLineSet.add(line);
-            }
-        }
+        const updatedResult = getValidation(updatedDoc);
 
         const symbolEdit = new vscode.WorkspaceEdit();
         for (const { moduleName, symbols } of transformations) {
             for (const symbol of symbols) {
-                replaceSymbolUsagesOutsideImports(updatedDoc, symbolEdit, updatedText, symbol, `${moduleName}.${symbol}`, importLineSet);
+                replaceSymbolUsagesOutsideImports(updatedDoc, symbolEdit, updatedText, symbol, `${moduleName}.${symbol}`, updatedResult.importLines);
             }
         }
 
@@ -171,9 +162,10 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
     for (let i = 0; i < 5; i++) {
         await new Promise(resolve => setTimeout(resolve, 100));
 
-        // Get fresh document reference to ensure we have the latest content
+        // Get fresh document reference and its validation result
         const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
-        const sorted = await sortImportsInDocument(freshDoc);
+        const freshResult = getValidation(freshDoc);
+        const sorted = await sortImportsInDocument(freshDoc, freshResult);
 
         if (!sorted) {
             break; // No changes made, imports are sorted
@@ -182,53 +174,6 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
     }
 
     return madeChanges ? 1 : 0;
-}
-
-/**
- * Replaces all usages of a symbol in the document with a qualified name,
- * skipping the import line itself, strings, comments, and already-qualified refs.
- */
-function replaceSymbolUsages(
-    document: vscode.TextDocument,
-    edit: vscode.WorkspaceEdit,
-    documentText: string,
-    symbol: string,
-    qualifiedName: string,
-    importRange: vscode.Range,
-): void {
-    const symbolRegex = new RegExp(`\\b${escapeRegex(symbol)}\\b`, 'g');
-    let match;
-
-    while ((match = symbolRegex.exec(documentText)) !== null) {
-        const matchStart = document.positionAt(match.index);
-        const matchEnd = document.positionAt(match.index + symbol.length);
-        const matchRange = new vscode.Range(matchStart, matchEnd);
-
-        // Skip if this is part of the import statement itself
-        if (matchRange.intersection(importRange)) {
-            continue;
-        }
-
-        // Skip if in a string or comment
-        const lineText = document.lineAt(matchStart.line).text;
-        const beforeMatch = lineText.substring(0, matchStart.character);
-        if (isInStringOrComment(beforeMatch)) {
-            continue;
-        }
-
-        // Skip if preceded by a dot (already qualified)
-        if (matchStart.character > 0) {
-            const charBefore = document.getText(new vscode.Range(
-                matchStart.translate(0, -1),
-                matchStart
-            ));
-            if (charBefore === '.') {
-                continue;
-            }
-        }
-
-        edit.replace(document.uri, matchRange, qualifiedName);
-    }
 }
 
 /**
@@ -242,7 +187,7 @@ function replaceSymbolUsagesOutsideImports(
     documentText: string,
     symbol: string,
     qualifiedName: string,
-    importLines: Set<number>,
+    importLines: ReadonlySet<number>,
 ): void {
     const symbolRegex = new RegExp(`\\b${escapeRegex(symbol)}\\b`, 'g');
     let match;
