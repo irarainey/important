@@ -2,6 +2,17 @@ import * as vscode from 'vscode';
 import type { ImportStatement } from '../types';
 
 /**
+ * Strips an inline `#` comment from a fragment of an import statement.
+ *
+ * In import statements `#` always starts a comment — there are no
+ * string literals or other constructs that could contain `#`.
+ */
+function stripInlineComment(text: string): string {
+    const hashIndex = text.indexOf('#');
+    return hashIndex === -1 ? text : text.substring(0, hashIndex);
+}
+
+/**
  * Parses a comma-separated list of imported names, extracting original
  * names and any `as` aliases into parallel structures.
  */
@@ -41,7 +52,7 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
     if (fromMatch) {
         const dots = fromMatch[1];
         const module = fromMatch[2];
-        const namesStr = fromMatch[3];
+        const namesStr = stripInlineComment(fromMatch[3]);
         const { names, aliases } = parseNameList(namesStr);
 
         return {
@@ -60,7 +71,7 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
     // Match 'import X' style
     const importMatch = trimmed.match(/^import\s+(.+)$/);
     if (importMatch) {
-        const modulesStr = importMatch[1];
+        const modulesStr = stripInlineComment(importMatch[1]);
         const { names: modules, aliases } = parseNameList(modulesStr);
 
         return {
@@ -97,7 +108,7 @@ function parseMultilineImport(
 
     const dots = fromMatch[1];
     const module = fromMatch[2];
-    let namesStr = fromMatch[3];
+    let namesStr = stripInlineComment(fromMatch[3]);
     let endLine = startLine;
     let fullText = document.lineAt(startLine).text;
 
@@ -110,10 +121,10 @@ function parseMultilineImport(
         // Check if this line contains the closing paren
         const closingIndex = line.indexOf(')');
         if (closingIndex !== -1) {
-            namesStr += line.substring(0, closingIndex);
+            namesStr += stripInlineComment(line.substring(0, closingIndex));
             break;
         } else {
-            namesStr += line;
+            namesStr += stripInlineComment(line);
         }
     }
 

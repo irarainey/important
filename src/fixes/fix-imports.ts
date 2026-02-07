@@ -97,7 +97,58 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Second: Apply symbol reference updates for import-modules-not-symbols
+    // Second: Fix non-standard import aliases by replacing with the standard
+    // alias (or removing the alias entirely) and updating all references.
+    const aliasIssues = issues.filter(i => i.code === 'non-standard-import-alias');
+    if (aliasIssues.length > 0) {
+        const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
+        const freshResult = getValidation(freshDoc);
+        const currentAliasIssues = freshResult.issues.filter(i => i.code === 'non-standard-import-alias');
+
+        const aliasTransformations: Array<{
+            oldAlias: string;
+            newName: string;
+        }> = [];
+
+        // Phase 1: Replace import statements
+        const aliasEdit = new vscode.WorkspaceEdit();
+        for (const issue of currentAliasIssues) {
+            if (!issue.suggestedFix) continue;
+
+            // The old alias currently used in code
+            const oldAlias = issue.import.aliases.get(issue.import.module);
+            if (!oldAlias) continue;
+
+            // The new usage name: either the standard alias or the bare module name
+            const asMatch = issue.suggestedFix.match(/^import\s+\S+\s+as\s+(\S+)$/);
+            const newName = asMatch ? asMatch[1] : issue.import.module;
+
+            aliasEdit.replace(freshDoc.uri, issue.range, issue.suggestedFix);
+            aliasTransformations.push({ oldAlias, newName });
+        }
+
+        if (aliasTransformations.length > 0) {
+            await vscode.workspace.applyEdit(aliasEdit);
+            madeChanges = true;
+
+            await new Promise(resolve => setTimeout(resolve, 100));
+
+            // Phase 2: Replace alias usages in code
+            const updatedDoc = await vscode.workspace.openTextDocument(editor.document.uri);
+            const updatedText = updatedDoc.getText();
+            const updatedResult = getValidation(updatedDoc);
+
+            const usageEdit = new vscode.WorkspaceEdit();
+            for (const { oldAlias, newName } of aliasTransformations) {
+                replaceSymbolUsagesOutsideImports(updatedDoc, usageEdit, updatedText, oldAlias, newName, updatedResult.importLines);
+            }
+
+            await vscode.workspace.applyEdit(usageEdit);
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
+    }
+
+    // Third: Apply symbol reference updates for import-modules-not-symbols
     // This must happen before we sort the imports.
     // Phase 1: Replace the import statements themselves
     // Phase 2: Replace symbol usages (after import edits are applied to avoid range conflicts)
@@ -111,7 +162,22 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         const transformations: Array<{
             moduleName: string;
             symbols: readonly string[];
+            aliases: ReadonlyMap<string, string>;
         }> = [];
+
+        // Build a map of modules already imported via `import X [as Y]`
+        // so we can reuse the existing reference name instead of creating
+        // a duplicate import that the deduplicator would incorrectly merge.
+        const existingModuleImports = new Map<string, string>();
+        for (const imp of freshResult.imports) {
+            if (imp.type === 'import') {
+                const usageName = imp.aliases.get(imp.module) ?? imp.module;
+                // Prefer non-aliased imports (module available by its own name)
+                if (!existingModuleImports.has(imp.module) || usageName === imp.module) {
+                    existingModuleImports.set(imp.module, usageName);
+                }
+            }
+        }
 
         // Phase 1: Replace import statements only
         const importEdit = new vscode.WorkspaceEdit();
@@ -124,12 +190,21 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
                 const moduleName = moduleParts[moduleParts.length - 1];
                 const parentPackage = moduleParts.slice(0, -1).join('.');
                 importEdit.replace(freshDoc.uri, issue.range, `from ${parentPackage} import ${moduleName}`);
-                transformations.push({ moduleName, symbols: importedSymbols });
+                transformations.push({ moduleName, symbols: importedSymbols, aliases: issue.import.aliases });
             } else {
                 // Top-level module: from fastmcp import FastMCP → import fastmcp
                 const moduleName = issue.import.module;
-                importEdit.replace(freshDoc.uri, issue.range, `import ${moduleName}`);
-                transformations.push({ moduleName, symbols: importedSymbols });
+                const existingName = existingModuleImports.get(moduleName);
+                if (existingName) {
+                    // Module already imported (possibly aliased).  Don't add
+                    // a duplicate — the from-import will become unused after
+                    // Phase 2 rewrites references, and the sort step removes
+                    // it.  Use the existing name for qualified references.
+                    transformations.push({ moduleName: existingName, symbols: importedSymbols, aliases: issue.import.aliases });
+                } else {
+                    importEdit.replace(freshDoc.uri, issue.range, `import ${moduleName}`);
+                    transformations.push({ moduleName, symbols: importedSymbols, aliases: issue.import.aliases });
+                }
             }
         }
 
@@ -145,9 +220,13 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         const updatedResult = getValidation(updatedDoc);
 
         const symbolEdit = new vscode.WorkspaceEdit();
-        for (const { moduleName, symbols } of transformations) {
+        for (const { moduleName, symbols, aliases } of transformations) {
             for (const symbol of symbols) {
-                replaceSymbolUsagesOutsideImports(updatedDoc, symbolEdit, updatedText, symbol, `${moduleName}.${symbol}`, updatedResult.importLines);
+                // When the imported name has an alias (e.g. `from json import loads as json_loads`),
+                // code uses the alias, not the original name.  Search for the alias and
+                // replace with the qualified original name (e.g. `json_loads` → `json.loads`).
+                const searchName = aliases.get(symbol) ?? symbol;
+                replaceSymbolUsagesOutsideImports(updatedDoc, symbolEdit, updatedText, searchName, `${moduleName}.${symbol}`, updatedResult.importLines);
             }
         }
 
@@ -157,7 +236,7 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         await new Promise(resolve => setTimeout(resolve, 100));
     }
 
-    // Third: Sort imports (also removes unused, expands multi-imports, fixes order)
+    // Fourth: Sort imports (also removes unused, expands multi-imports, fixes order)
     // Iterate until stable (max 5 iterations for safety)
     for (let i = 0; i < 5; i++) {
         await new Promise(resolve => setTimeout(resolve, 100));

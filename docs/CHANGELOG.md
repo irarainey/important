@@ -1,21 +1,13 @@
-## 0.2.2
+## 0.3.0
 
-- **Unified validation scan**: Introduced `ValidationResult` — a single scan now produces parsed imports, categories, issues, and unused-name mappings. Both diagnostics and the fix command consume the same cached result, eliminating duplicate scans and ensuring consistency between what is reported and what is fixed.
-- **Validation cache**: Added `validation-cache.ts` — caches `ValidationResult` by document URI and version. A cache hit is O(1); recomputation happens only when the document content changes.
-- **Consistent unused-import detection**: Unused-name detection now excludes **all** import lines (not just the current import's own lines). Previously, a name appearing inside another import statement could suppress an unused-import diagnostic — the fix process already used full-block exclusion, creating a discrepancy.
-- **Sort-imports no longer re-scans**: `sortImportsInDocument()` now receives a pre-computed `ValidationResult` instead of independently parsing, categorising, and checking for unused names. This removes the last source of divergence between diagnostics and fixes.
-- **Removed dead code**: Removed the unused `replaceSymbolUsages()` function from `fix-imports.ts` (superseded by `replaceSymbolUsagesOutsideImports()`).
-- **Full-file import scanning**: The import parser now scans the entire file instead of stopping after the top-level import block ends. Imports found after the block are still parsed and marked `misplaced: true`.
-- **Misplaced-import diagnostic (Rule 10)**: Imports located outside the top-level block are flagged with `misplaced-import` (Warning severity).
-- **Misplaced-import auto-fix**: The sort-imports algorithm deletes misplaced imports from their scattered positions (bottom-up to preserve line numbers) and merges them into the sorted top block.
-- **Ordering rules scoped to top block**: Rules 8 (`wrong-import-order`) and 9 (`wrong-alphabetical-order`) now only evaluate imports in the top-level block, avoiding misleading diagnostics for misplaced imports that will be relocated anyway.
-- **Alias validation**: Added `non-standard-import-alias` rule — `import y as z` is now flagged when `z` is not a recognised standard abbreviation (e.g. `np`, `pd`, `plt`, `tf`). A built-in list of well-known aliases is checked; a suggested fix is provided when a standard alias exists.
-- **Alias validation**: Added `unnecessary-from-alias` rule — `from x import y as z` is flagged when no other import in the file imports a name `y`, indicating no detectable naming conflict. The diagnostic message explains the valid use cases per Google style 2.2.4.
-- **Alias-aware parsing**: The import parser now preserves `as` aliases in a `Map<string, string>` on `ImportStatement` instead of stripping them. All downstream consumers (validator, sort-imports, fix-imports, unused-import detection) are alias-aware.
-- **Alias-aware unused detection**: Unused import detection now checks for usage of the alias (not the original name) when an `as` clause is present.
-- **Alias-preserving sort**: Import sorting now preserves `as` clauses when reconstructing sorted import text.
-- **Stdlib Rule 4 enforcement**: The `import-modules-not-symbols` rule now applies to stdlib modules (e.g. `from os.path import join` is flagged). Previously all stdlib modules were blanket-exempt; now only the four modules listed in Google style 2.2.4.1 (typing, collections.abc, typing_extensions, six.moves) are exempt.
-- **six.moves exemption**: Added `six.moves` to the `SYMBOL_IMPORT_EXEMPTIONS` list, matching Google style 2.2.4.1. Previously it was missing.
+- **Unified validation architecture**: A single scan now produces a `ValidationResult` (parsed imports, categories, issues, unused-name mappings) cached by document URI and version. Diagnostics, the fix command, and the import sorter all consume the same cached result — eliminating duplicate scans and ensuring consistency between what is reported and what is fixed.
+- **Full-file import scanning**: The parser scans the entire file instead of stopping after the top-level import block. Imports found later are marked `misplaced: true`, flagged with a `misplaced-import` diagnostic (Warning), and automatically relocated to the top block on fix. Ordering rules only evaluate top-block imports to avoid misleading diagnostics for imports that will be relocated.
+- **Inline comment stripping**: The parser now strips `# ...` comments from import lines before parsing names — preventing inline comments containing commas from corrupting the parsed name list and silently dropping aliases.
+- **Alias validation rules**: Added `non-standard-import-alias` (flags `import y as z` when `z` is not a recognised standard abbreviation) and `unnecessary-from-alias` (flags `from x import y as z` when no naming conflict is detected).
+- **Alias-aware fixes**: The import parser preserves `as` aliases throughout the pipeline. Non-standard aliases are auto-fixed with full reference updates (e.g. `import os as operating_system` → `import os`, all `operating_system.xxx` → `os.xxx`). Symbol-import fixes (`import-modules-not-symbols`) correctly search for the alias in code rather than the original name, and reuse an existing `import X [as Y]` instead of creating duplicates. Unused-import detection checks alias usage, and sorting preserves `as` clauses.
+- **Consistent unused-import detection**: Unused-name detection now excludes **all** import lines (not just the current import's own lines), preventing a name appearing inside another import statement from suppressing diagnostics.
+- **Stdlib Rule 4 enforcement**: `import-modules-not-symbols` now applies to stdlib modules (e.g. `from os.path import join` is flagged). Only the four modules listed in Google style 2.2.4.1 (`typing`, `collections.abc`, `typing_extensions`, `six.moves`) are exempt.
+- **Dead code removal**: Removed unused `replaceSymbolUsages()` function, removed unnecessary exports (`validateDocument`, `getImportCategory`, `MODULE_SYMBOLS`), consolidated duplicate logger imports.
 
 ## 0.2.1
 

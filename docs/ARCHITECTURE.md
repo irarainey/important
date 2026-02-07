@@ -86,15 +86,23 @@ automatically re-scans.
       │
       ├──► getValidation(document)  ◄── same cached result as diagnostics
       │
-      ├──► Fix wildcard imports (if known symbols exist)
+      ├──► Step 1: Fix wildcard imports (if known symbols exist)
       │    - Scan for used symbols from MODULE_SYMBOLS
       │    - Replace symbol usages with qualified names
       │    - Convert to module import
       │    - Document version changes → cache invalidated
       │
-      ├──► getValidation(freshDoc)  ◄── re-scans after wildcard edits
+      ├──► Step 2: Fix non-standard import aliases
+      │    - Replace import with standard alias or plain import
+      │      e.g. `import os as operating_system` → `import os`
+      │      e.g. `import datetime as date` → `import datetime as dt`
+      │    - Replace all references: old alias → new name
+      │      e.g. `operating_system.name` → `os.name`
+      │    - Document version changes → cache invalidated
       │
-      ├──► Fix import-modules-not-symbols
+      ├──► getValidation(freshDoc)  ◄── re-scans after prior edits
+      │
+      ├──► Step 3: Fix import-modules-not-symbols
       │    - Detect symbol imports via three-tier approach:
       │      1. Definitive: module path is a .py file (isModuleFile)
       │      2. Sub-module: imported name is a .py file/package (isWorkspaceModule)
@@ -102,9 +110,12 @@ automatically re-scans.
       │    - Top-level: from pkg import Cls → import pkg
       │    - Deep: from pkg.mod import Cls → from pkg import mod
       │    - Replace symbol usages with qualified names
+      │      (alias-aware: searches for the alias, not the original name)
+      │    - Reuses existing `import X [as Y]` when present to avoid
+      │      duplicate imports that the deduplicator would incorrectly merge
       │    - Document version changes → cache invalidated
       │
-      └──► sortImportsInDocument(freshDoc, getValidation(freshDoc))
+      └──► Step 4: sortImportsInDocument(freshDoc, getValidation(freshDoc))
            - Receives pre-computed ValidationResult (no re-scan)
            - Expand multi-imports
            - Remove unused imports (from pre-computed unusedNames map)
@@ -112,6 +123,7 @@ automatically re-scans.
            - Group by category (from pre-computed categories map)
            - Sort: `import` before `from`, then alphabetically
            - Reconstruct with `as` clauses
+           - Relocate misplaced imports to the top block
            - Apply edit if changed
            - Up to 5 iterations until stable
 ```
@@ -234,7 +246,7 @@ The `import-modules-not-symbols` rule uses a three-tier approach to distinguish 
 
 Exemptions per Google style 2.2.4.1: `typing`, `collections.abc`, `typing_extensions`, and `six.moves` are exempt from this rule. The rule applies to all modules including stdlib — importing symbols from stdlib modules (e.g. `from os.path import join`) is flagged the same as third-party symbol imports.
 
-The `non-standard-import-alias` rule enforces that `import y as z` is only used when `z` is a recognised standard abbreviation (e.g. `import numpy as np`). A built-in list of well-known aliases is used for validation.
+The `non-standard-import-alias` rule enforces that `import y as z` is only used when `z` is a recognised standard abbreviation (e.g. `import numpy as np`). A built-in list of well-known aliases is used for validation. The auto-fix replaces the import with the standard alias (or removes the alias entirely) and renames all references in code from the old alias to the new name.
 
 The `unnecessary-from-alias` rule flags `from x import y as z` when no other import in the file imports a name `y`, indicating there is no detectable naming conflict. The remaining subjective conditions (long name, too generic, conflicts with local definitions) are noted in the diagnostic message for the developer to evaluate.
 
@@ -259,13 +271,14 @@ from typing import (
 
 The parser:
 
-1. Matches `import X` or `from X import Y` patterns
-2. Parses `as` aliases into a `Map<string, string>` on the `ImportStatement`, preserving the original name as the key and the alias as the value
-3. Tracks relative import level (number of dots)
-4. Collects multi-line imports by tracking parentheses
-5. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
-6. Scans the **entire file** — the top-level import block is determined by the 2-consecutive-non-import-line heuristic (blank lines, comments, docstrings, `__all__`, and `if TYPE_CHECKING` guards are permitted), but imports found after the block closes are still parsed and marked with `misplaced: true`
-7. Misplaced imports are flagged by the validator (Rule 10) and relocated to the top by the sorter
+1. Strips inline `#` comments from import lines before parsing names (prevents `from x import y  # comment with, commas` from corrupting the name list)
+2. Matches `import X` or `from X import Y` patterns
+3. Parses `as` aliases into a `Map<string, string>` on the `ImportStatement`, preserving the original name as the key and the alias as the value
+4. Tracks relative import level (number of dots)
+5. Collects multi-line imports by tracking parentheses (inline comments are stripped from each continuation line)
+6. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
+7. Scans the **entire file** — the top-level import block is determined by the 2-consecutive-non-import-line heuristic (blank lines, comments, docstrings, `__all__`, and `if TYPE_CHECKING` guards are permitted), but imports found after the block closes are still parsed and marked with `misplaced: true`
+8. Misplaced imports are flagged by the validator (Rule 10) and relocated to the top by the sorter
 
 ### Symbol Usage Detection (`text-utils.ts`)
 
@@ -294,6 +307,24 @@ Symbol detection skips:
 - All lines of the import statement (`line` through `endLine`), including multi-line parenthesized imports
 - Strings and comments (using `isInStringOrComment`)
 - Already-qualified names (preceded by `.`)
+
+### Non-Standard Alias Fixing (`fix-imports.ts`)
+
+For `import os as operating_system` (no standard alias exists) or `import datetime as date` (standard is `dt`):
+
+1. Replace the import statement with the suggested fix (`import os` or `import datetime as dt`)
+2. Determine the new usage name: standard alias if present, otherwise the bare module name
+3. Replace all references in code: `operating_system.xxx` → `os.xxx`, `date.xxx` → `dt.xxx`
+
+Reference replacement skips import lines, strings, comments, and already-qualified names — same rules as wildcard and symbol-import fixing.
+
+### Symbol Import Fixing (`fix-imports.ts`)
+
+For `from json import loads as json_loads` (import-modules-not-symbols):
+
+1. Check if the module is already imported via `import X [as Y]` — if so, reuse that existing reference name to avoid creating a duplicate import that would be incorrectly merged by the deduplicator
+2. Replace the import statement: `from X import Y` → `import X` (top-level) or `from X import Y` → `from X import mod` (deep)
+3. Replace all references — **alias-aware**: when the imported name has an `as` alias, searches for the alias (e.g. `json_loads`) not the original name (`loads`), and replaces with the qualified form (`json.loads`)
 
 ### Import Sorting (`sort-imports.ts`)
 

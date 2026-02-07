@@ -134,12 +134,12 @@ def plot_results(data: Dict[str, Any]) -> None:
     plt.tight_layout()
 
 
-def process_path(filepath: Union[os_path, pathlib_path]) -> str:
+def process_path(filepath: Union[str, pathlib_path]) -> str:
     """Process a file path from either module."""
     # This demonstrates why the alias is needed - both 'path' and 'Path' could conflict
-    if hasattr(filepath, "as_posix"):
+    if isinstance(filepath, pathlib_path):
         return filepath.as_posix()  # pathlib_path
-    return str(filepath)  # os_path
+    return filepath  # already a str
 
 
 def load_json_data(json_str: str) -> Dict[str, Any]:

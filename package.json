@@ -3,7 +3,7 @@
   "displayName": "Important",
   "description": "A Visual Studio Code extension to validate and format Python import statements according to the Google Python Style Guide.",
   "icon": "resources/images/logo.png",
-  "version": "0.2.2",
+  "version": "0.3.0",
   "publisher": "irarainey",
   "author": {
     "name": "Ira Rainey",
@@ -37,7 +37,7 @@
     "onLanguage:python",
     "onStartupFinished"
   ],
-  "main": "./dist/extension.js",
+  "main": "./output/dist/extension.js",
   "contributes": {
     "commands": [
       {
@@ -110,8 +110,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run esbuild-base -- --minify",
-    "package": "mkdir -p package && vsce package -o package/",
-    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node",
+    "package": "mkdir -p output/package && vsce package -o output/package/",
+    "esbuild-base": "esbuild ./src/extension.ts --bundle --outfile=output/dist/extension.js --external:vscode --format=cjs --platform=node",
     "compile": "npm run esbuild-base -- --sourcemap",
     "watch": "npm run esbuild-base -- --sourcemap --watch",
     "compile:tsc": "tsc -p ./",

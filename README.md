@@ -87,7 +87,7 @@ Also available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-cli
 Or via command line:
 
 ```bash
-code --install-extension important-python-0.2.2.vsix
+code --install-extension important-python-0.3.0.vsix
 ```
 
 ## Configuration
@@ -191,6 +191,50 @@ import os
 print(os.path.abspath("."))
 ```
 
+### Non-Standard Alias Fixing
+
+Non-standard import aliases are replaced with the recognised standard abbreviation (or the plain module name if no standard exists), and all references in code are updated:
+
+```python
+# Before
+import numpy as num
+import os as operating_system
+import datetime as date
+
+arr = num.array([1, 2, 3])
+print(operating_system.name)
+now = date.datetime.now()
+
+# After
+import datetime as dt
+import numpy as np
+import os
+
+arr = np.array([1, 2, 3])
+print(os.name)
+now = dt.datetime.now()
+```
+
+### Alias-Aware Symbol Import Fixing
+
+When fixing `from X import Y as Z` style symbol imports, the fixer correctly searches for the alias (not the original name) and replaces it with the qualified form:
+
+```python
+# Before
+from json import loads as json_loads
+from collections import OrderedDict as OD
+
+data = json_loads(text)
+config = OD([("key", "value")])
+
+# After
+import collections
+import json
+
+data = json.loads(text)
+config = collections.OrderedDict([("key", "value")])
+```
+
 ## Building
 
 ### Prerequisites
@@ -231,7 +275,7 @@ Create a `.vsix` file for manual installation:
 npm run package
 ```
 
-The package will be created in the `package/` directory.
+The package will be created in the `output/package/` directory.
 
 ## Project Structure
 
@@ -246,6 +290,7 @@ important/
 │   ├── validation/              		# Import validation logic
 │   │   ├── import-parser.ts        	# Import statement parsing
 │   │   ├── import-validator.ts     	# Validation rules
+│   │   ├── validation-cache.ts     	# Version-keyed validation cache
 │   │   └── diagnostics.ts          	# Diagnostic conversion
 │   ├── fixes/                   		# Import fixing logic
 │   │   ├── fix-imports.ts          	# Fix all imports command
@@ -271,9 +316,9 @@ important/
 │           ├── models/sample_models.py	# Clean file (no issues)
 │           └── utils/utils.py      	# Relative imports, symbol imports
 ├── docs/
-│   └── ARCHITECTURE.md        			# Developer documentation
+│   ├── ARCHITECTURE.md        			# Developer documentation
 │   └── CHANGELOG.md               		# Release changelog
-├── dist/                      			# Compiled output (generated)
+├── output/                    			# Compiled output (generated)
 ├── package.json               			# Extension manifest & dependencies
 ├── tsconfig.json              			# TypeScript configuration
 └── eslint.config.mjs          			# ESLint configuration

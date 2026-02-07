@@ -11,7 +11,7 @@
                 "${workspaceFolder}/tests/application"
             ],
             "outFiles": [
-                "${workspaceFolder}/dist/**/*.js"
+                "${workspaceFolder}/output/dist/**/*.js"
             ],
             "preLaunchTask": "${defaultBuildTask}",
             "env": {

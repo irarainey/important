@@ -6,7 +6,7 @@
         "lib": [
             "ES2022"
         ],
-        "outDir": "dist",
+        "outDir": "output/dist",
         "rootDir": "src",
         "sourceMap": true,
         "strict": true,
@@ -18,7 +18,7 @@
     "exclude": [
         "node_modules",
         ".vscode-test",
-        "dist",
+        "output/dist",
         "tests"
     ]
 }

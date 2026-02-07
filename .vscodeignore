@@ -19,4 +19,4 @@ package-lock.json
 docs/**
 
 # Only include the bundled extension.js, not individual compiled files
-dist/**/*.js.map
+output/dist/**/*.js.map
