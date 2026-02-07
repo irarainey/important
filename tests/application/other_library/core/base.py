@@ -1,6 +1,6 @@
 """Base classes for data processing."""
 
-from __future__ import annotations
+import __future__
 
 import dataclasses
 from typing import Any, Generic, TypeVar
