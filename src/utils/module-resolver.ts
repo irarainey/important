@@ -245,15 +245,16 @@ export function isFirstPartyModule(moduleName: string, documentUri?: vscode.Uri)
 /**
  * Glob pattern that excludes directories containing third-party or
  * environment packages.  These should never be treated as local modules.
+ * Shared with `pyproject-reader.ts` for consistent file discovery.
  */
-const EXCLUDE_PATTERN = '{**/node_modules/**,**/.venv/**,**/venv/**,**/.env/**,**/env/**,**/__pypackages__/**,**/.tox/**,**/.nox/**,**/.pyenv/**,**/site-packages/**}';
+export const WORKSPACE_EXCLUDE_PATTERN = '{**/node_modules/**,**/.venv/**,**/venv/**,**/.env/**,**/env/**,**/__pypackages__/**,**/.tox/**,**/.nox/**,**/.pyenv/**,**/site-packages/**}';
 
 /**
  * Rebuilds the module-path cache and derived indices from all `.py`
  * files in the workspace.
  */
 async function rebuildCache(): Promise<void> {
-    const files = await vscode.workspace.findFiles('**/*.py', EXCLUDE_PATTERN);
+    const files = await vscode.workspace.findFiles('**/*.py', WORKSPACE_EXCLUDE_PATTERN);
     const paths = new Set<string>();
 
     for (const file of files) {

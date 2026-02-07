@@ -173,8 +173,8 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
         const line = document.lineAt(i).text;
         const trimmed = line.trim();
 
-        // Check for multiline import (contains 'import (' without closing ')')
-        if (line.includes('import (') && !line.includes(')')) {
+        // Check for multiline import (from X import ( without closing ')')
+        if (/^\s*from\s+\S+\s+import\s+\(/.test(line) && !line.includes(')')) {
             const multiline = parseMultilineImport(document, i);
             if (multiline) {
                 imports.push({ ...multiline.import, misplaced: topBlockEnded });

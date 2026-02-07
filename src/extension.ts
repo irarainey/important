@@ -68,7 +68,6 @@ export function activate(context: vscode.ExtensionContext): void {
             const changesMade = await fixAllImports(editor);
 
             // Revalidate after fixes to update diagnostics
-            await new Promise(resolve => setTimeout(resolve, 50));
             validateDocument(editor.document);
 
             if (changesMade === 0) {

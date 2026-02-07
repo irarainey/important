@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import type { ScopedFirstParty } from '../types';
 import { log } from './logger';
+import { WORKSPACE_EXCLUDE_PATTERN } from './module-resolver';
 
 /**
  * Reads `known-first-party` entries from `[tool.ruff.lint.isort]` in every
@@ -13,7 +14,7 @@ import { log } from './logger';
  * Uses a lightweight regex-based parser — no TOML library dependency.
  */
 export async function readFirstPartyFromPyproject(): Promise<readonly ScopedFirstParty[]> {
-    const files = await vscode.workspace.findFiles('**/pyproject.toml', '{**/node_modules/**,**/.venv/**,**/venv/**}');
+    const files = await vscode.workspace.findFiles('**/pyproject.toml', WORKSPACE_EXCLUDE_PATTERN);
 
     if (files.length === 0) {
         log('No pyproject.toml found in workspace.');

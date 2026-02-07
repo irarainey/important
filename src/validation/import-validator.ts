@@ -2,7 +2,7 @@ import * as vscode from 'vscode';
 import type { ImportStatement, ImportIssue, ImportCategory, ValidationResult } from '../types';
 import { CATEGORY_ORDER } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
-import { escapeRegex, isNameUsedOutsideLines } from '../utils/text-utils';
+import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines } from '../utils/text-utils';
 import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
@@ -140,6 +140,18 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         }
     }
 
+    // Pre-compute for Rule 6: original name counts and effective namespace
+    // names across all imports, for fast conflict detection.  Effective
+    // names use the alias (if present) instead of the original name.
+    const originalNameCounts = new Map<string, number>();
+    const allEffectiveNames = new Set<string>();
+    for (const imp of imports) {
+        for (const n of imp.names) {
+            originalNameCounts.set(n, (originalNameCounts.get(n) ?? 0) + 1);
+            allEffectiveNames.add(imp.aliases.get(n) ?? n);
+        }
+    }
+
     for (const imp of imports) {
         // Rule 1: No relative imports
         if (imp.level > 0) {
@@ -226,7 +238,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                         if (pos.line >= imp.line && pos.line <= imp.endLine) continue;
                         const lineText = document.lineAt(pos.line).text;
                         const beforeText = lineText.substring(0, pos.character);
-                        if (beforeText.includes('#')) continue;
+                        if (isInStringOrComment(beforeText)) continue;
                         return true;
                     }
                 }
@@ -288,19 +300,17 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         // across the file's imports; the remaining conditions are subjective
         // so we flag any alias that has no detectable justification.
         if (imp.type === 'from' && imp.aliases.size > 0) {
-            // Collect all imported names across every import in this file
-            // to check for duplicate-name conflicts.
-            const allImportedNames = new Set<string>();
-            for (const other of imports) {
-                if (other === imp) continue;
-                for (const n of other.names) {
-                    allImportedNames.add(n);
-                }
-            }
-
             for (const [original, alias] of imp.aliases) {
-                // Allow if another import brings in the same name (conflict)
-                if (allImportedNames.has(original)) {
+                // Allow if another import also imports a name called `original`
+                // (count >= 2 means at least one OTHER import has it too)
+                if ((originalNameCounts.get(original) ?? 0) >= 2) {
+                    continue;
+                }
+                // Allow if `original` is an effective namespace name from
+                // another import (e.g. `import X as original` makes it taken).
+                // This import contributes `alias` (not `original`) to the
+                // namespace, so any presence indicates a genuine conflict.
+                if (allEffectiveNames.has(original)) {
                     continue;
                 }
                 issues.push({

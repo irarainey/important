@@ -46,7 +46,9 @@ from services.api.handlers.project_handler import (
     ProjectMetadata as ProjMeta,
 )
 
+# ⚠️ VIOLATION: Local model imports
 # ⚠️ VIOLATION: First-party symbol imports with multiline
+from models.sample_models import User, Config, Project, Task
 from other_library.core.base import (
     BaseProcessor,
     ProcessorConfig,
@@ -58,9 +60,6 @@ from other_library.core.exceptions import ProcessingError, ValidationError
 # ⚠️ VIOLATION: First-party utils symbol imports with aliases
 from other_library.utils.formatting import format_output as fmt_out
 from other_library.utils.validation import validate_input as validate, is_valid_email
-
-# ⚠️ VIOLATION: Local model imports
-from models.sample_models import User, Config, Project, Task
 
 # ✅ CORRECT: Standard abbreviation alias
 import matplotlib.pyplot as plt

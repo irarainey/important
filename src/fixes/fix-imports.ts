@@ -16,7 +16,7 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
     await ensureModuleResolverReady();
 
     const document = editor.document;
-    const { issues } = getValidation(document);
+    const { issues, importLines } = getValidation(document);
     let madeChanges = false;
 
     const relativePath = vscode.workspace.asRelativePath(document.uri);
@@ -31,58 +31,16 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         for (const issue of wildcardIssues) {
             const moduleName = issue.import.module;
 
-            // Check if we have known symbols for this module
             if (!hasModuleSymbols(moduleName)) {
-                // Can't fix - skip this wildcard import
                 continue;
             }
 
-            // Use the top-level module for simplicity (e.g., os instead of os.path)
             const topLevelModule = moduleName.split('.')[0];
-
             const knownSymbols = getModuleSymbols(moduleName);
-            const usedSymbols: string[] = [];
 
-            // Scan document for uses of known symbols
+            // Replace all usages of known symbols with qualified names
             for (const symbol of knownSymbols) {
-                const symbolRegex = new RegExp(`\\b${escapeRegex(symbol)}\\b`, 'g');
-                let match;
-
-                while ((match = symbolRegex.exec(documentText)) !== null) {
-                    const matchStart = document.positionAt(match.index);
-
-                    // Skip if this is on the import line(s) (including multi-line imports)
-                    if (matchStart.line >= issue.import.line && matchStart.line <= issue.import.endLine) {
-                        continue;
-                    }
-
-                    // Skip if in a string or comment
-                    const lineText = document.lineAt(matchStart.line).text;
-                    const beforeMatch = lineText.substring(0, matchStart.character);
-                    if (isInStringOrComment(beforeMatch)) {
-                        continue;
-                    }
-
-                    // Skip if preceded by a dot (already qualified)
-                    if (matchStart.character > 0) {
-                        const charBefore = document.getText(new vscode.Range(
-                            matchStart.translate(0, -1),
-                            matchStart
-                        ));
-                        if (charBefore === '.') {
-                            continue;
-                        }
-                    }
-
-                    if (!usedSymbols.includes(symbol)) {
-                        usedSymbols.push(symbol);
-                    }
-
-                    // Replace symbol with qualified name (keep full path for clarity)
-                    const matchEnd = document.positionAt(match.index + symbol.length);
-                    const matchRange = new vscode.Range(matchStart, matchEnd);
-                    edit.replace(document.uri, matchRange, `${moduleName}.${symbol}`);
-                }
+                replaceSymbolUsagesOutsideImports(document, edit, documentText, symbol, `${moduleName}.${symbol}`, importLines);
             }
 
             // Replace the wildcard import with simple top-level module import
@@ -92,9 +50,6 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
 
         await vscode.workspace.applyEdit(edit);
         madeChanges = true;
-
-        // Wait for edit to be applied
-        await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     // Second: Fix non-standard import aliases by replacing with the standard
@@ -163,8 +118,6 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
             await vscode.workspace.applyEdit(aliasEdit);
             madeChanges = true;
 
-            await new Promise(resolve => setTimeout(resolve, 100));
-
             // Phase 2: Replace alias usages in code
             const updatedDoc = await vscode.workspace.openTextDocument(editor.document.uri);
             const updatedText = updatedDoc.getText();
@@ -176,7 +129,6 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
             }
 
             await vscode.workspace.applyEdit(usageEdit);
-            await new Promise(resolve => setTimeout(resolve, 100));
         }
     }
 
@@ -243,9 +195,6 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         await vscode.workspace.applyEdit(importEdit);
         madeChanges = true;
 
-        // Wait for import edits to be applied
-        await new Promise(resolve => setTimeout(resolve, 100));
-
         // Phase 2: Replace symbol usages in the updated document
         const updatedDoc = await vscode.workspace.openTextDocument(editor.document.uri);
         const updatedText = updatedDoc.getText();
@@ -263,16 +212,11 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         }
 
         await vscode.workspace.applyEdit(symbolEdit);
-
-        // Wait for symbol edits to be applied before sorting
-        await new Promise(resolve => setTimeout(resolve, 100));
     }
 
     // Fourth: Sort imports (also removes unused, expands multi-imports, fixes order)
     // Iterate until stable (max 5 iterations for safety)
     for (let i = 0; i < 5; i++) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-
         // Get fresh document reference and its validation result
         const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
         const freshResult = getValidation(freshDoc);
