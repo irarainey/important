@@ -21,5 +21,16 @@ export default tseslint.config(
 			"@typescript-eslint/no-explicit-any": "warn",
 			"no-console": ["warn", { allow: ["warn", "error"] }]
 		}
+	},
+
+	// Test file rules — relax `any` and unused-var restrictions.
+	// Mock objects are cast to `any` when passed to functions expecting
+	// vscode types, and mock stubs intentionally ignore parameters.
+	{
+		files: ["tests/**/*.ts"],
+		rules: {
+			"@typescript-eslint/no-explicit-any": "off",
+			"@typescript-eslint/no-unused-vars": ["error", { argsIgnorePattern: "^_" }]
+		}
 	}
 );

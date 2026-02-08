@@ -1,4 +1,4 @@
-name: Lint and Compile
+name: Lint, Compile, Test
 
 on:
     workflow_dispatch:
@@ -19,3 +19,6 @@ jobs:
 
             - name: Compile TypeScript
               run: npm run compile
+
+            - name: Run Tests
+              run: npm run test

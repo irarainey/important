@@ -1,0 +1,5 @@
+require:
+    - output/test/register.js
+spec: output/test/tests/unit/**/*.test.js
+timeout: 10000
+recursive: true

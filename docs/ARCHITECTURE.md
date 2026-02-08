@@ -441,20 +441,51 @@ To support wildcard fixing for a new module:
 
 ## Testing
 
+### Manual Testing (Extension Development Host)
+
 1. Press `F5` to launch Extension Development Host
 2. Open `tests/application/src/main.py`
 3. Observe squiggly underlines for issues
 4. Run "Important: Fix Imports in This File"
 5. Verify all issues are fixed correctly
 
+### Unit Tests
+
+The extension includes a comprehensive unit test suite (142 tests across 7 files) that runs outside the VS Code extension host.
+
+```bash
+npm run test
+```
+
+**Test infrastructure:**
+
+- **Mocha** test runner, configured via `.mocharc.yml`
+- **Separate TypeScript config** (`tsconfig.test.json`) — compiles both `src/` and `tests/unit/` to CommonJS in `output/test/`, since Mocha requires CommonJS modules (the main build uses ES2022 modules via esbuild)
+- **Custom `vscode` mock** (`tests/unit/mocks/vscode.ts`) — provides `Position`, `Range`, `Uri`, `TextDocument`, `WorkspaceEdit`, `DiagnosticSeverity`, and `workspace` stubs. Mock `TextDocument` instances are created via `createMockDocument(text)` and cast to `vscode.TextDocument` with `as any` in test call sites
+- **Runtime module hook** (`output/test/register.js`) — intercepts `require('vscode')` at runtime and redirects it to the compiled mock module, allowing source files that `import … from 'vscode'` to resolve without the real VS Code API
+- **ESLint test overrides** — `eslint.config.mjs` disables `@typescript-eslint/no-explicit-any` for `tests/**/*.ts` (mock casts are inherently `any`-typed) and allows `_`-prefixed unused parameters in mock stubs
+
+**Test coverage:**
+
+| Test File                  | Module Tested                                                          | Tests |
+| -------------------------- | ---------------------------------------------------------------------- | ----- |
+| `import-parser.test.ts`    | Import parsing (single/multi-line, TYPE_CHECKING, misplaced)           | 25    |
+| `import-validator.test.ts` | All 10 validation rules, categories, severity, unused names            | 45    |
+| `module-resolver.test.ts`  | `isWorkspaceModule`, `isModuleFile`, `isLocalModule`, first-party      | 15    |
+| `sort-imports.test.ts`     | Grouping, sorting, dedup, unused removal, TC blocks, wrapping          | 14    |
+| `diagnostics.test.ts`      | `issuesToDiagnostics`, validation cache lifecycle                      | 11    |
+| `utils.test.ts`            | `escapeRegex`, `isInStringOrComment`, `isNameUsedOutsideLines`, stdlib | 28    |
+| `types.test.ts`            | `CATEGORY_ORDER` structure and ordering                                | 4     |
+
 ## Build Commands
 
-| Command           | Description                 |
-| ----------------- | --------------------------- |
-| `npm run compile` | Build with source maps      |
-| `npm run watch`   | Build and watch for changes |
-| `npm run lint`    | Run ESLint                  |
-| `npm run package` | Create .vsix package        |
+| Command           | Description                       |
+| ----------------- | --------------------------------- |
+| `npm run compile` | Build with source maps            |
+| `npm run watch`   | Build and watch for changes       |
+| `npm run test`    | Run unit tests (Mocha, 142 tests) |
+| `npm run lint`    | Run ESLint                        |
+| `npm run package` | Create .vsix package              |
 
 ## Performance Considerations
 

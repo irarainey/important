@@ -311,18 +311,30 @@ important/
 │       ├── stdlib-modules.ts   		# Python standard library module list
 │       └── text-utils.ts      			# Text/regex utilities
 ├── tests/
-│   └── application/         		# Sample Python project for testing
-│       ├── other_library/         	# First-party package (with nested modules)
-│       │   ├── core/              	# BaseProcessor, exceptions
-│       │   └── utils/             	# formatting, validation
-│       └── src/
-│           ├── main.py             	# Multiple issues: multi-imports, order, unused
-│           ├── complex_example.py  	# Aliases, multiline, deep namespace imports    │       ├── embedded_type_checking_example.py  # Embedded TC block between imports
-    │       ├── multiline_wrapping_example.py      # Line-length wrapping tests│           ├── alias_examples.py   	# Standard vs non-standard alias testing
-│           ├── services/api/handlers/	# Deep namespace test structure
-│           ├── helpers/helpers.py  	# Parent relative import, multiple imports
-│           ├── models/sample_models.py	# Clean file (no issues)
-│           └── utils/utils.py      	# Relative imports, symbol imports
+│   ├── application/                    # Sample Python project for manual testing
+│   │   ├── other_library/              # First-party package (with nested modules)
+│   │   │   ├── core/                   # BaseProcessor, exceptions
+│   │   │   └── utils/                  # formatting, validation
+│   │   └── src/
+│   │       ├── main.py                 # Multiple issues: multi-imports, order, unused
+│   │       ├── complex_example.py      # Aliases, multiline, deep namespace imports
+│   │       ├── alias_examples.py       # Standard vs non-standard alias testing
+│   │       ├── embedded_type_checking_example.py  # Embedded TC block between imports
+│   │       ├── multiline_wrapping_example.py      # Line-length wrapping tests
+│   │       ├── type_checking_example.py           # TYPE_CHECKING block tests
+│   │       ├── services/api/handlers/  # Deep namespace test structure
+│   │       ├── helpers/helpers.py      # Parent relative import, multiple imports
+│   │       ├── models/sample_models.py # Clean file (no issues)
+│   │       └── utils/utils.py          # Relative imports, symbol imports
+│   └── unit/                           # Automated unit tests (Mocha)
+│       ├── mocks/vscode.ts             # Custom vscode module mock
+│       ├── import-parser.test.ts       # Import parsing (25 tests)
+│       ├── import-validator.test.ts    # Validation rules (45 tests)
+│       ├── module-resolver.test.ts     # Module resolution (15 tests)
+│       ├── sort-imports.test.ts        # Import sorting (14 tests)
+│       ├── diagnostics.test.ts         # Diagnostic conversion (11 tests)
+│       ├── utils.test.ts               # Text utilities & stdlib (28 tests)
+│       └── types.test.ts               # Type definitions (4 tests)
 ├── docs/
 │   ├── ARCHITECTURE.md        			# Developer documentation
 │   ├── GOOGLE-STYLE-GUIDE.md      		# Google Python Style Guide import rules reference
@@ -330,8 +342,10 @@ important/
 ├── CHANGELOG.md               			# Release changelog
 ├── output/                    			# Compiled output (generated)
 ├── package.json               			# Extension manifest & dependencies
-├── tsconfig.json              			# TypeScript configuration
-└── eslint.config.mjs          			# ESLint configuration
+├── tsconfig.json              			# TypeScript configuration (ES2022 / esbuild)
+├── tsconfig.test.json         			# TypeScript configuration for tests (CommonJS / Mocha)
+├── .mocharc.yml               			# Mocha test runner configuration
+└── eslint.config.mjs          			# ESLint configuration (with test overrides)
 ```
 
 ## Development
@@ -356,15 +370,43 @@ The sample project includes intentional import violations for testing:
 | `src/helpers/helpers.py`                | Multiple imports on one line, unused import                        |
 | `src/models/sample_models.py`           | ✅ Clean - no issues (for comparison)                              |
 | `src/type_checking_example.py`          | TYPE_CHECKING block with symbol imports, ordering tests            |
+| `src/embedded_type_checking_example.py` | Embedded TC block between regular imports, symbol, misplaced       |
+| `src/multiline_wrapping_example.py`     | Line-length wrapping, merged typing, TC wrapping                   |
+
+### Unit Tests
+
+The extension includes a comprehensive unit test suite (142 tests) covering all core modules. Tests run outside the VS Code extension host using a custom `vscode` module mock.
+
+```bash
+npm run test
+```
+
+The test infrastructure uses:
+
+- **Mocha** as the test runner (configured via `.mocharc.yml`)
+- **Separate TypeScript config** (`tsconfig.test.json`) compiling to CommonJS for Node.js/Mocha compatibility
+- **Custom `vscode` mock** (`tests/unit/mocks/vscode.ts`) providing `Position`, `Range`, `Uri`, `TextDocument`, `WorkspaceEdit`, `DiagnosticSeverity`, and `workspace` stubs
+- **Runtime module hook** (`output/test/register.js`) redirecting `require('vscode')` to the mock at runtime
+
+| Test File                  | Module Tested     | Tests |
+| -------------------------- | ----------------- | ----- |
+| `import-parser.test.ts`    | Import parsing    | 25    |
+| `import-validator.test.ts` | Validation rules  | 45    |
+| `module-resolver.test.ts`  | Module resolution | 15    |
+| `sort-imports.test.ts`     | Import sorting    | 14    |
+| `diagnostics.test.ts`      | Diagnostics       | 11    |
+| `utils.test.ts`            | Text & stdlib     | 28    |
+| `types.test.ts`            | Type definitions  | 4     |
 
 ### Available Scripts
 
-| Script            | Description                 |
-| ----------------- | --------------------------- |
-| `npm run compile` | Build with source maps      |
-| `npm run watch`   | Build and watch for changes |
-| `npm run lint`    | Run ESLint                  |
-| `npm run package` | Create .vsix package        |
+| Script            | Description                       |
+| ----------------- | --------------------------------- |
+| `npm run compile` | Build with source maps            |
+| `npm run watch`   | Build and watch for changes       |
+| `npm run test`    | Run unit tests (Mocha, 142 tests) |
+| `npm run lint`    | Run ESLint                        |
+| `npm run package` | Create .vsix package              |
 
 ### Developer Documentation
 

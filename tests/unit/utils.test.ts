@@ -1,0 +1,175 @@
+import { strict as assert } from 'node:assert';
+import { describe, it } from 'mocha';
+import { createMockDocument } from './mocks/vscode';
+import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines } from '../../src/utils/text-utils';
+import { isStdlibModule } from '../../src/utils/stdlib-modules';
+import { STANDARD_IMPORT_ALIASES } from '../../src/utils/standard-aliases';
+
+describe('text-utils', () => {
+    // ------------------------------------------------------------------
+    // escapeRegex
+    // ------------------------------------------------------------------
+    describe('escapeRegex', () => {
+        it('escapes special regex characters', () => {
+            assert.equal(escapeRegex('os.path'), 'os\\.path');
+            assert.equal(escapeRegex('a+b'), 'a\\+b');
+            assert.equal(escapeRegex('foo[bar]'), 'foo\\[bar\\]');
+            assert.equal(escapeRegex('a*b'), 'a\\*b');
+        });
+
+        it('returns plain strings unchanged', () => {
+            assert.equal(escapeRegex('hello'), 'hello');
+            assert.equal(escapeRegex('my_module'), 'my_module');
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // isInStringOrComment
+    // ------------------------------------------------------------------
+    describe('isInStringOrComment', () => {
+        it('returns true when position is after a #', () => {
+            assert.ok(isInStringOrComment('x = 1  # '));
+        });
+
+        it('returns false for code before a comment', () => {
+            assert.ok(!isInStringOrComment('x = 1'));
+        });
+
+        it('returns true inside a double-quoted string', () => {
+            assert.ok(isInStringOrComment('x = "hello '));
+        });
+
+        it('returns true inside a single-quoted string', () => {
+            assert.ok(isInStringOrComment("x = 'hello "));
+        });
+
+        it('returns false outside strings', () => {
+            assert.ok(!isInStringOrComment('x = "done" + '));
+        });
+
+        it('returns false inside f-string expression {}', () => {
+            // Inside an f-string's {} is code, not string
+            assert.ok(!isInStringOrComment('x = f"value={'));
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // isNameUsedOutsideLines
+    // ------------------------------------------------------------------
+    describe('isNameUsedOutsideLines', () => {
+        it('returns true when the name is used outside excluded lines', () => {
+            const doc = createMockDocument('import os\n\nprint(os.name)');
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            assert.ok(isNameUsedOutsideLines(doc as any, text, 'os', excludeLines));
+        });
+
+        it('returns false when the name only appears on excluded lines', () => {
+            const doc = createMockDocument('import os\n\nx = 1');
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            assert.ok(!isNameUsedOutsideLines(doc as any, text, 'os', excludeLines));
+        });
+
+        it('does not match name inside a comment', () => {
+            const doc = createMockDocument('import os\n\n# os is great\nx = 1');
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            assert.ok(!isNameUsedOutsideLines(doc as any, text, 'os', excludeLines));
+        });
+
+        it('does not match partial word boundaries', () => {
+            const doc = createMockDocument('import os\n\nosx = "mac"');
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            // "osx" should not match "os" with word boundaries
+            assert.ok(!isNameUsedOutsideLines(doc as any, text, 'os', excludeLines));
+        });
+    });
+});
+
+describe('stdlib-modules', () => {
+    describe('isStdlibModule', () => {
+        it('recognizes common stdlib modules', () => {
+            assert.ok(isStdlibModule('os'));
+            assert.ok(isStdlibModule('sys'));
+            assert.ok(isStdlibModule('json'));
+            assert.ok(isStdlibModule('collections'));
+            assert.ok(isStdlibModule('typing'));
+            assert.ok(isStdlibModule('pathlib'));
+            assert.ok(isStdlibModule('datetime'));
+            assert.ok(isStdlibModule('hashlib'));
+            assert.ok(isStdlibModule('textwrap'));
+            assert.ok(isStdlibModule('io'));
+        });
+
+        it('recognizes stdlib submodules via top-level lookup', () => {
+            assert.ok(isStdlibModule('os.path'));
+            assert.ok(isStdlibModule('collections.abc'));
+        });
+
+        it('recognizes __future__ as stdlib', () => {
+            assert.ok(isStdlibModule('__future__'));
+        });
+
+        it('does not flag third-party modules', () => {
+            assert.ok(!isStdlibModule('requests'));
+            assert.ok(!isStdlibModule('numpy'));
+            assert.ok(!isStdlibModule('pandas'));
+            assert.ok(!isStdlibModule('fastmcp'));
+        });
+
+        it('does not flag typing_extensions as stdlib', () => {
+            // typing_extensions is a third-party package
+            assert.ok(!isStdlibModule('typing_extensions'));
+        });
+
+        it('recognizes nested stdlib paths via top-level', () => {
+            assert.ok(isStdlibModule('email.mime.text'));
+            assert.ok(isStdlibModule('http.server'));
+            assert.ok(isStdlibModule('urllib.parse'));
+        });
+    });
+});
+
+describe('standard-aliases', () => {
+    describe('STANDARD_IMPORT_ALIASES', () => {
+        it('includes numpy → np', () => {
+            assert.equal(STANDARD_IMPORT_ALIASES.get('numpy'), 'np');
+        });
+
+        it('includes pandas → pd', () => {
+            assert.equal(STANDARD_IMPORT_ALIASES.get('pandas'), 'pd');
+        });
+
+        it('includes matplotlib.pyplot → plt', () => {
+            assert.equal(STANDARD_IMPORT_ALIASES.get('matplotlib.pyplot'), 'plt');
+        });
+
+        it('includes datetime → dt', () => {
+            assert.equal(STANDARD_IMPORT_ALIASES.get('datetime'), 'dt');
+        });
+
+        it('does not include unknown modules', () => {
+            assert.equal(STANDARD_IMPORT_ALIASES.get('requests'), undefined);
+        });
+
+        it('has all expected entries', () => {
+            const expectedModules = [
+                'numpy', 'pandas', 'matplotlib', 'matplotlib.pyplot',
+                'seaborn', 'tensorflow', 'scipy', 'polars',
+                'networkx', 'sqlalchemy', 'datetime',
+            ];
+            for (const mod of expectedModules) {
+                assert.ok(
+                    STANDARD_IMPORT_ALIASES.has(mod),
+                    `Expected STANDARD_IMPORT_ALIASES to contain '${mod}'`,
+                );
+            }
+        });
+    });
+});
