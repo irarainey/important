@@ -90,7 +90,7 @@ Also available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-cli
 Or via command line:
 
 ```bash
-code --install-extension important-python-0.3.1.vsix
+code --install-extension important-python-0.3.2.vsix
 ```
 
 ## Configuration
@@ -317,8 +317,8 @@ important/
 │       │   └── utils/             	# formatting, validation
 │       └── src/
 │           ├── main.py             	# Multiple issues: multi-imports, order, unused
-│           ├── complex_example.py  	# Aliases, multiline, deep namespace imports
-│           ├── alias_examples.py   	# Standard vs non-standard alias testing
+│           ├── complex_example.py  	# Aliases, multiline, deep namespace imports    │       ├── embedded_type_checking_example.py  # Embedded TC block between imports
+    │       ├── multiline_wrapping_example.py      # Line-length wrapping tests│           ├── alias_examples.py   	# Standard vs non-standard alias testing
 │           ├── services/api/handlers/	# Deep namespace test structure
 │           ├── helpers/helpers.py  	# Parent relative import, multiple imports
 │           ├── models/sample_models.py	# Clean file (no issues)
@@ -345,15 +345,17 @@ important/
 
 The sample project includes intentional import violations for testing:
 
-| File                           | Violations                                                      |
-| ------------------------------ | --------------------------------------------------------------- |
-| `src/main.py`                  | Multiple imports, wrong order, unused, wildcard, symbol imports |
-| `src/complex_example.py`       | Non-standard aliases, deep namespace, multiline symbol imports  |
-| `src/alias_examples.py`        | Standard vs non-standard aliases, from-alias, typing exemptions |
-| `src/utils/utils.py`           | Relative import, symbol import, wrong alphabetical order        |
-| `src/helpers/helpers.py`       | Multiple imports on one line, unused import                     |
-| `src/models/sample_models.py`  | ✅ Clean - no issues (for comparison)                           |
-| `src/type_checking_example.py` | TYPE_CHECKING block with symbol imports, ordering tests         |
+| File                                    | Violations                                                         |
+| --------------------------------------- | ------------------------------------------------------------------ |
+| `src/main.py`                           | Multiple imports, wrong order, unused, wildcard, symbol, misplaced |
+| `src/complex_example.py`                | Non-standard aliases, deep namespace, multiline, misplaced         |
+| `src/alias_examples.py`                 | Standard vs non-standard aliases, from-alias, typing exemptions    |
+| `src/embedded_type_checking_example.py` | Embedded TC block between imports, symbol, misplaced               |
+| `src/multiline_wrapping_example.py`     | Line-length wrapping, merged typing, TC wrapping                   |
+| `src/utils/utils.py`                    | Relative import, symbol import, wrong alphabetical order           |
+| `src/helpers/helpers.py`                | Multiple imports on one line, unused import                        |
+| `src/models/sample_models.py`           | ✅ Clean - no issues (for comparison)                              |
+| `src/type_checking_example.py`          | TYPE_CHECKING block with symbol imports, ordering tests            |
 
 ### Available Scripts
 

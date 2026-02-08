@@ -291,11 +291,18 @@ function rebuildIndices(): void {
 
         // Build suffix set for isModuleFile: store the path itself and
         // every unique slash-suffix, excluding __init__ paths.
+        // Skip single-segment suffixes — they are ambiguous between a
+        // package name and a same-named file inside the package (e.g.
+        // `helpers/helpers.py` produces suffix `helpers` which collides
+        // with the `helpers` package itself).
         if (!modulePath.endsWith('/__init__')) {
             suffixes.add(modulePath);
             let idx = modulePath.indexOf('/');
             while (idx !== -1) {
-                suffixes.add(modulePath.slice(idx + 1));
+                const suffix = modulePath.slice(idx + 1);
+                if (suffix.includes('/')) {
+                    suffixes.add(suffix);
+                }
                 idx = modulePath.indexOf('/', idx + 1);
             }
         }
@@ -329,12 +336,15 @@ function addToCache(uri: vscode.Uri): void {
         bucket.add(modulePath);
     }
 
-    // Update moduleFileSuffixes
+    // Update moduleFileSuffixes (skip single-segment suffixes)
     if (!modulePath.endsWith('/__init__')) {
         moduleFileSuffixes.add(modulePath);
         let idx = modulePath.indexOf('/');
         while (idx !== -1) {
-            moduleFileSuffixes.add(modulePath.slice(idx + 1));
+            const suffix = modulePath.slice(idx + 1);
+            if (suffix.includes('/')) {
+                moduleFileSuffixes.add(suffix);
+            }
             idx = modulePath.indexOf('/', idx + 1);
         }
     }

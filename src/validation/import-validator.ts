@@ -207,7 +207,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
             //     to snake_case names (Python module convention).
             const isModuleImport = !confirmedSymbolImport && imp.names.some(name => {
                 // Filesystem check: does a .py file or package exist?
-                if (moduleParts.length >= 2 && isWorkspaceModule(imp.module, name)) {
+                if (isWorkspaceModule(imp.module, name)) {
                     return true;
                 }
 
