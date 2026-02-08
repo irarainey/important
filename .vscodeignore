@@ -10,6 +10,8 @@ tests/**
 .git/**
 *.vsix
 tsconfig.json
+tsconfig.test.json
+.mocharc.yml
 **/*.ts
 **/*.map
 .eslintrc*
@@ -20,3 +22,4 @@ docs/**
 
 # Only include the bundled extension.js, not individual compiled files
 output/dist/**/*.js.map
+output/test/**
