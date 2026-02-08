@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
-from models import sample_models
+from models.sample_models import Project
 
 if TYPE_CHECKING:
     # ✅ CORRECT: Symbol imports are allowed inside TYPE_CHECKING for typing
@@ -45,6 +45,11 @@ def load_config(config: Config) -> None:
     logger.info("Loading config: debug=%s", config.debug)
 
 
-def create_model() -> sample_models.Project:
+def create_model() -> Project:
     """Create a project using module-level access."""
-    return sample_models.Project(id=1, name="test", owner_id=1)
+    return Project(
+        name="test",
+        description="A test project",
+        active=True,
+        owner=User(id=1, name="Alice", email="alice@example.com")
+    )
