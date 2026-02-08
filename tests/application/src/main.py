@@ -77,5 +77,17 @@ def main() -> None:
     logger.info("Sum: %d", helpers.add(2, 3))
 
 
+def secondary_task() -> None:
+    """A secondary function that also uses imports."""
+    # ⚠️ VIOLATION: Misplaced import — should be at top of file
+    import hashlib
+    from datetime import datetime
+
+    digest = hashlib.sha256(b"hello").hexdigest()
+    now = datetime.now()
+    print(f"Hash: {digest}, Time: {now}")
+
+
 if __name__ == "__main__":
     main()
+    secondary_task()

@@ -194,6 +194,19 @@ def verify_types(data: Mapping[str, Sequence[int]]) -> bool:
     return True
 
 
+def format_analysis_report(analyzer: DataAnalyzer) -> str:
+    """Format a full analysis report with misplaced imports."""
+    # ⚠️ VIOLATION: Misplaced import — should be at top of file
+    import textwrap
+    from io import StringIO
+
+    results = analyzer.analyze()
+    buf = StringIO()
+    for key, val in results.items():
+        buf.write(f"{key}: {val}\n")
+    return textwrap.indent(buf.getvalue(), prefix="  ")
+
+
 def main() -> None:
     """Main function demonstrating complex import usage."""
     log.basicConfig(level=log.INFO)

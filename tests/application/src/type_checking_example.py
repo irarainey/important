@@ -11,10 +11,7 @@ TYPE_CHECKING block.
 
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING
-
-from models.sample_models import Project
 
 if TYPE_CHECKING:
     # ✅ CORRECT: Symbol imports are allowed inside TYPE_CHECKING for typing
@@ -23,6 +20,10 @@ if TYPE_CHECKING:
         UserRequest,
         UserResponse,
     )
+
+from models.sample_models import Project
+import logging
+
 
 logger = logging.getLogger(__name__)
 

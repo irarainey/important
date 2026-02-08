@@ -200,15 +200,88 @@ export async function sortImportsInDocument(
         }
     }
 
-    // Check if the TYPE_CHECKING block needs changes
+    // Detect whether the TYPE_CHECKING block is embedded within the
+    // top-block range (regular imports exist both before and after it).
+    // When embedded, replacing the top-block range with only the sorted
+    // regular imports would destroy the TC block.  Instead we build a
+    // single combined replacement that includes both sections.
+    let tcEmbedded = false;
+    let tcHeaderLine = -1;
+    let tcBlockFirstLine = -1;
+    let tcBlockLastLine = -1;
+
+    if (tcImports.length > 0) {
+        tcBlockFirstLine = Math.min(...tcImports.map(i => i.line));
+        tcBlockLastLine = Math.max(...tcImports.map(i => i.endLine));
+
+        if (tcBlockFirstLine > topFirstLine && tcBlockLastLine <= topLastLine) {
+            // Find the `if TYPE_CHECKING:` header line by scanning backward
+            for (let l = tcBlockFirstLine - 1; l >= 0; l--) {
+                const lineText = document.lineAt(l).text.trim();
+                if (lineText.startsWith('if TYPE_CHECKING') && lineText.endsWith(':')) {
+                    tcHeaderLine = l;
+                    break;
+                }
+            }
+            tcEmbedded = tcHeaderLine >= 0;
+        }
+    }
+
+    if (tcEmbedded) {
+        // Build combined text: sorted regular imports, then the
+        // `if TYPE_CHECKING:` header and its (optionally re-sorted) body.
+        const tcHeaderText = document.lineAt(tcHeaderLine).text;
+        const tcBody = sortedTcText ?? document.getText(
+            new vscode.Range(
+                new vscode.Position(tcBlockFirstLine, 0),
+                new vscode.Position(tcBlockLastLine, document.lineAt(tcBlockLastLine).text.length),
+            ),
+        );
+        const combinedText = sortedImportsText + '\n\n' + tcHeaderText + '\n' + tcBody;
+
+        // The replacement range spans from the first regular import to
+        // whichever ends later — the last regular import or the TC block.
+        const rangeFirstLine = Math.min(topFirstLine, tcHeaderLine);
+        const rangeLastLine = Math.max(topLastLine, tcBlockLastLine);
+        const fullRange = new vscode.Range(
+            new vscode.Position(rangeFirstLine, 0),
+            new vscode.Position(rangeLastLine, document.lineAt(rangeLastLine).text.length),
+        );
+
+        if (misplacedImports.length === 0) {
+            const currentText = document.getText(fullRange);
+            if (currentText === combinedText) {
+                return false;
+            }
+            const edit = new vscode.WorkspaceEdit();
+            edit.replace(document.uri, fullRange, combinedText);
+            return vscode.workspace.applyEdit(edit);
+        }
+
+        // Misplaced imports exist — delete them then replace with combined text
+        const edit = new vscode.WorkspaceEdit();
+        const sortedMisplaced = [...misplacedImports].sort((a, b) => b.line - a.line);
+        for (const imp of sortedMisplaced) {
+            const startPos = new vscode.Position(imp.line, 0);
+            const endLine = imp.endLine + 1 < document.lineCount
+                ? imp.endLine + 1
+                : imp.endLine;
+            const endPos = imp.endLine + 1 < document.lineCount
+                ? new vscode.Position(endLine, 0)
+                : new vscode.Position(imp.endLine, document.lineAt(imp.endLine).text.length);
+            edit.delete(document.uri, new vscode.Range(startPos, endPos));
+        }
+        edit.replace(document.uri, fullRange, combinedText);
+        return vscode.workspace.applyEdit(edit);
+    }
+
+    // --- Non-embedded TC block path (TC block is outside the top-block range) ---
     let tcNeedsChange = false;
     let tcRange: vscode.Range | undefined;
     if (tcImports.length > 0 && sortedTcText !== undefined) {
-        const tcFirstLine = Math.min(...tcImports.map(i => i.line));
-        const tcLastLine = Math.max(...tcImports.map(i => i.endLine));
         tcRange = new vscode.Range(
-            new vscode.Position(tcFirstLine, 0),
-            new vscode.Position(tcLastLine, document.lineAt(tcLastLine).text.length),
+            new vscode.Position(tcBlockFirstLine, 0),
+            new vscode.Position(tcBlockLastLine, document.lineAt(tcBlockLastLine).text.length),
         );
         const currentTcText = document.getText(tcRange);
         tcNeedsChange = currentTcText !== sortedTcText;

@@ -4,14 +4,16 @@ A minimal Python project for testing the **Important** extension.
 
 ## Files
 
-| File                          | Import Issues                                                             |
-| ----------------------------- | ------------------------------------------------------------------------- |
-| `src/main.py`                 | Multiple imports, wrong order, unused, wildcard import, symbol import     |
-| `src/complex_example.py`      | Non-standard aliases, from-aliases, deep namespace imports, multiline     |
-| `src/alias_examples.py`       | Standard vs non-standard aliases, typing exemptions, conflict-based alias |
-| `src/utils/utils.py`          | Relative import, symbol import, wrong alphabetical order                  |
-| `src/helpers/helpers.py`      | Multiple imports on one line, unused import                               |
-| `src/models/sample_models.py` | ✅ Clean - no issues (for comparison)                                     |
+| File                                    | Import Issues                                                             |
+| --------------------------------------- | ------------------------------------------------------------------------- |
+| `src/main.py`                           | Multiple imports, wrong order, unused, wildcard, symbol, misplaced import |
+| `src/complex_example.py`                | Non-standard aliases, from-aliases, deep namespace, multiline, misplaced  |
+| `src/alias_examples.py`                 | Standard vs non-standard aliases, typing exemptions, conflict-based alias |
+| `src/utils/utils.py`                    | Relative import, symbol import, wrong alphabetical order                  |
+| `src/helpers/helpers.py`                | Multiple imports on one line, unused import                               |
+| `src/embedded_type_checking_example.py` | Embedded TYPE_CHECKING block between regular imports, symbol, misplaced   |
+| `src/multiline_wrapping_example.py`     | Merged typing imports, line-length wrapping, embedded TC with wrapping    |
+| `src/models/sample_models.py`           | ✅ Clean - no issues (for comparison)                                     |
 
 ## Project Structure
 
@@ -32,6 +34,8 @@ tests/application/
 └── src/
     ├── main.py                 # Basic violations
     ├── complex_example.py      # Advanced violations (aliases, multiline, deep)
+    ├── embedded_type_checking_example.py  # Embedded TC block between imports
+    ├── multiline_wrapping_example.py       # Line-length wrapping tests
     ├── alias_examples.py       # Alias-specific test cases
     ├── helpers/
     ├── models/
@@ -67,6 +71,22 @@ All issues in these sample files can be automatically fixed.
 - `from services.api.handlers.user_handler import UserRequest` → should become module import
 - Multi-line parenthesized imports with multiple symbols
 - First-party deep imports from `other_library.core.base`
+
+### Embedded TYPE_CHECKING Block (`embedded_type_checking_example.py`)
+
+- `if TYPE_CHECKING:` block is sandwiched between regular imports
+- TC block must be preserved intact when the surrounding imports are sorted
+- Symbol imports below the TC block trigger Rule 4 fixes
+- Tests that fixing and sorting don't destroy the TC block or its header
+
+### Multiline Wrapping (`multiline_wrapping_example.py`)
+
+- Two `from typing` imports merged into one 99-char line → wraps
+- `from collections.abc` at 113 chars → wraps
+- `from typing_extensions` at 89 chars → wraps (just over the 88-char limit)
+- Indented TC imports: 101 and 116 chars exceed effective limit (84) → wrap
+- Shorter TC imports at 69 and 76 chars → stay single-line
+- Wrong category ordering triggers sorting before formatting
 
 ### Typing Exemptions
 
