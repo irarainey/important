@@ -174,10 +174,16 @@ export async function sortImportsInDocument(
     const sortedImportsText = sortedBlocks.join('\n\n');
 
     // --- TYPE_CHECKING block sorting ---
+    // Only process TC imports when validation found TC-specific issues
+    // (ordering, unused, alphabetical, etc.).  This prevents the sorter
+    // from reformatting already-valid TC imports (e.g. collapsing
+    // multi-line imports to single-line) as a side effect of fixing
+    // unrelated issues outside the block.
     const tcImports = imports.filter(imp => imp.typeCheckingOnly);
-    const sortedTcText = buildSortedTypeCheckingBlock(
-        tcImports, categories, unusedNames, lineLength, document,
-    );
+    const hasTcIssues = result.issues.some(i => i.import.typeCheckingOnly);
+    const sortedTcText = hasTcIssues
+        ? buildSortedTypeCheckingBlock(tcImports, categories, unusedNames, lineLength, document)
+        : undefined;
 
     // Separate top-block and misplaced imports (excluding TYPE_CHECKING imports)
     const topBlockImports = imports.filter(imp => !imp.misplaced && !imp.typeCheckingOnly);

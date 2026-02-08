@@ -5,9 +5,8 @@ Google style guide rules still apply inside `if TYPE_CHECKING:` blocks,
 with one key exemption: symbol imports (Rule 4) are allowed because these
 imports exist purely for type annotations.
 
-This file has two sections:
-  1. Correct usage (no warnings expected)
-  2. Intentional violations inside the TYPE_CHECKING block
+All imports below are correct — no diagnostics are expected inside the
+TYPE_CHECKING block.
 """
 
 from __future__ import annotations
