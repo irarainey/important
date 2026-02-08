@@ -1,5 +1,5 @@
 require:
-    - ./output/test/register.js
+    - ./tests/unit/register.cjs
 spec: output/test/tests/unit/**/*.test.js
 timeout: 10000
 recursive: true
