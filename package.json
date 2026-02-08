@@ -3,7 +3,7 @@
   "displayName": "Important",
   "description": "A Visual Studio Code extension to validate and format Python import statements according to the Google Python Style Guide.",
   "icon": "resources/images/logo.png",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "publisher": "irarainey",
   "author": {
     "name": "Ira Rainey",

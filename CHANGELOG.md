@@ -1,3 +1,7 @@
+## 0.3.1
+
+- Added `__future__` to `SYMBOL_IMPORT_EXEMPTIONS` — `from __future__ import annotations` is now exempt from the `import-modules-not-symbols` rule. These are compiler directives, not regular imports, and linters like Ruff explicitly exempt them from unused-import checks (F401) and unnecessary-future-import checks (UP010).
+
 ## 0.3.0
 
 - **Unified validation architecture**: A single scan now produces a `ValidationResult` (parsed imports, categories, issues, unused-name mappings) cached by document URI and version. Diagnostics, the fix command, and the import sorter all consume the same cached result — eliminating duplicate scans and ensuring consistency between what is reported and what is fixed.

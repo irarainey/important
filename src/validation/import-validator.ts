@@ -7,8 +7,11 @@ import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines } from '../uti
 import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
-/** Modules exempt from Rule 4 (import-modules-not-symbols) per Google style 2.2.4.1. */
-const SYMBOL_IMPORT_EXEMPTIONS = ['typing', 'typing_extensions', 'collections.abc', 'six.moves'] as const;
+/**
+ * Modules exempt from Rule 4 (import-modules-not-symbols) per Google style 2.2.4.1.
+ * Includes `__future__` because these are compiler directives, not regular imports.
+ */
+const SYMBOL_IMPORT_EXEMPTIONS = ['__future__', 'typing', 'typing_extensions', 'collections.abc', 'six.moves'] as const;
 
 /**
  * Builds a Range that spans the full extent of an import statement,
