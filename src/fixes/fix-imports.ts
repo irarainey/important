@@ -11,16 +11,23 @@ import { log } from '../utils/logger';
  * 
  * @returns Number > 0 if any fixes were applied, 0 if nothing to fix
  */
-export async function fixAllImports(editor: vscode.TextEditor): Promise<number> {
+export async function fixAllImports(editor: vscode.TextEditor, lineLength: number): Promise<number> {
     // Ensure the module resolver is ready so category detection works.
     await ensureModuleResolverReady();
 
     const document = editor.document;
     const { issues, importLines } = getValidation(document);
-    let madeChanges = false;
 
     const relativePath = vscode.workspace.asRelativePath(document.uri);
     log(`Fixing imports in ${relativePath}: ${issues.length} issue(s) detected.`);
+
+    // If there are no diagnostics, skip all fix and sort logic — the imports
+    // are already valid and should not be reformatted.
+    if (issues.length === 0) {
+        return 0;
+    }
+
+    let madeChanges = false;
 
     // First: Fix wildcard imports by converting to module imports
     const wildcardIssues = issues.filter(i => i.code === 'no-wildcard-imports');
@@ -220,7 +227,7 @@ export async function fixAllImports(editor: vscode.TextEditor): Promise<number> 
         // Get fresh document reference and its validation result
         const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
         const freshResult = getValidation(freshDoc);
-        const sorted = await sortImportsInDocument(freshDoc, freshResult);
+        const sorted = await sortImportsInDocument(freshDoc, freshResult, lineLength);
 
         if (!sorted) {
             break; // No changes made, imports are sorted

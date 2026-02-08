@@ -22,6 +22,8 @@ export interface ImportStatement {
     readonly text: string;
     /** `true` when the import was found outside the top-level import block and should be moved to the top. */
     readonly misplaced: boolean;
+    /** `true` when the import is inside an `if TYPE_CHECKING:` block and should be exempt from runtime validation. */
+    readonly typeCheckingOnly: boolean;
 }
 
 /**
@@ -120,4 +122,6 @@ export interface ImportantConfig {
     readonly knownFirstParty: readonly string[];
     /** Whether to auto-read `known-first-party` from `pyproject.toml`. Defaults to `true`. */
     readonly readFromPyprojectToml: boolean;
+    /** Maximum line length for imports. `0` means auto-detect from `pyproject.toml`, falling back to 88. */
+    readonly lineLength: number;
 }

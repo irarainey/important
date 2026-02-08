@@ -28,7 +28,8 @@ src/
     ├── module-resolver.ts          # Workspace Python module detection
     ├── stdlib-modules.ts           # Python stdlib module list
     ├── module-symbols.ts           # Known symbols for wildcard fixing
-    ├── pyproject-reader.ts         # Reads first-party config from pyproject.toml
+    ├── pyproject-reader.ts         # Reads first-party config & line-length from pyproject.toml
+    ├── standard-aliases.ts         # Well-known import alias mappings (e.g. np, pd, dt)
     └── text-utils.ts               # Regex escaping, string/comment detection
 ```
 
@@ -115,7 +116,7 @@ automatically re-scans.
       │      duplicate imports that the deduplicator would incorrectly merge
       │    - Document version changes → cache invalidated
       │
-      └──► Step 4: sortImportsInDocument(freshDoc, getValidation(freshDoc))
+      └──► Step 4: sortImportsInDocument(freshDoc, getValidation(freshDoc), lineLength)
            - Receives pre-computed ValidationResult (no re-scan)
            - Expand multi-imports
            - Remove unused imports (from pre-computed unusedNames map)
@@ -145,6 +146,7 @@ interface ImportStatement {
 	endLine: number; // End line number (same as line for single-line imports)
 	text: string; // Original import text (may contain newlines for multi-line)
 	misplaced: boolean; // true if found after the top-level import block
+	typeCheckingOnly: boolean; // true if inside an `if TYPE_CHECKING:` block
 }
 ```
 
@@ -244,7 +246,7 @@ The `import-modules-not-symbols` rule uses a three-tier approach to distinguish 
 2. **Sub-module filesystem check**: `isWorkspaceModule()` checks whether the _imported name_ resolves to a `.py` file or package. If so, it is treated as a module import (not flagged).
 3. **Dot-access heuristic**: If a snake_case imported name is used with dot access (`name.attr`) in the file, it is treated as a module. PascalCase names (starting with an uppercase letter) skip this heuristic, as they are almost certainly classes whose dot access (e.g. `Config.from_dict()`) should not suppress the violation.
 
-Exemptions per Google style 2.2.4.1: `typing`, `collections.abc`, `typing_extensions`, and `six.moves` are exempt from this rule. Additionally, `__future__` is exempt because these are compiler directives (e.g. `from __future__ import annotations` enables PEP 563 postponed evaluation). The rule applies to all other modules including stdlib — importing symbols from stdlib modules (e.g. `from os.path import join`) is flagged the same as third-party symbol imports.
+Exemptions per Google style 2.2.4.1: `typing`, `collections.abc`, `typing_extensions`, and `six.moves` are exempt from this rule. Additionally, `__future__` is exempt because these are compiler directives (e.g. `from __future__ import annotations` enables PEP 563 postponed evaluation). Imports inside `if TYPE_CHECKING:` blocks are also exempt — symbol imports for type annotations are explicitly allowed by the style guide. The rule applies to all other modules including stdlib — importing symbols from stdlib modules (e.g. `from os.path import join`) is flagged the same as third-party symbol imports. All other rules (no relative imports, no wildcards, ordering, unused-import detection, alias validation) still apply within `TYPE_CHECKING` blocks.
 
 The `non-standard-import-alias` rule enforces that `import y as z` is only used when `z` is a recognised standard abbreviation (e.g. `import numpy as np`). A built-in list of well-known aliases is used for validation. The auto-fix replaces the import with the standard alias (or removes the alias entirely) and renames all references in code from the old alias to the new name.
 
@@ -278,7 +280,8 @@ The parser:
 5. Collects multi-line imports by tracking parentheses (inline comments are stripped from each continuation line)
 6. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
 7. Scans the **entire file** — the top-level import block is determined by the 2-consecutive-non-import-line heuristic (blank lines, comments, docstrings, `__all__`, and `if TYPE_CHECKING` guards are permitted), but imports found after the block closes are still parsed and marked with `misplaced: true`
-8. Misplaced imports are flagged by the validator (Rule 10) and relocated to the top by the sorter
+8. Detects `if TYPE_CHECKING:` blocks by indentation: when the parser encounters this guard line it marks all subsequent imports at deeper indentation as `typeCheckingOnly: true` until the block ends (a non-blank line at the same or lesser indentation)
+9. Misplaced imports are flagged by the validator (Rule 10) and relocated to the top by the sorter; `typeCheckingOnly` imports are exempt from relocation but are sorted in-place within their block
 
 ### Symbol Usage Detection (`text-utils.ts`)
 
@@ -329,7 +332,9 @@ For `from json import loads as json_loads` (import-modules-not-symbols):
 
 ### Import Sorting (`sort-imports.ts`)
 
-Receives a pre-computed `ValidationResult` — **no independent scanning**:
+Receives a pre-computed `ValidationResult` — **no independent scanning**.
+
+The fix command (`fixAllImports`) guards the entire pipeline with an early exit: when validation reports **zero issues**, no fix or sort logic runs. This prevents the sorter from reformatting already-valid imports (e.g. collapsing Ruff-wrapped multi-line imports into single lines).
 
 1. **Read** parsed imports, categories, and unused names from `ValidationResult`
 2. **Normalize**: Expand `import os, sys` → separate imports
@@ -337,9 +342,10 @@ Receives a pre-computed `ValidationResult` — **no independent scanning**:
 4. **Deduplicate**: Merge `from X import a` and `from X import b` (aliases are preserved during merging)
 5. **Categorize**: Use pre-computed `categories` map (future / stdlib / third-party / first-party / local)
 6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case) — matching Ruff/isort default behaviour
-7. **Format**: Join with blank lines between categories, reconstructing `as` clauses where present
+7. **Format**: Join with blank lines between categories, reconstructing `as` clauses where present. For `from` imports, if the single-line form exceeds the configured line length it is wrapped into Ruff-style parenthesised multi-line format with 4-space indentation and trailing commas.
 8. **Relocate**: If misplaced imports exist, delete them from their scattered positions (bottom-up to preserve line numbers) and merge into the top block
-9. **Apply**: Replace top-block range with the sorted text (or no-op if already correct)
+9. **TYPE_CHECKING block**: `typeCheckingOnly` imports are sorted separately using the same normalise → deduplicate → group → sort → format pipeline but with the block's indentation preserved. Blank lines between categories and multi-line wrapping (adjusted for indent) are applied. The sorted text replaces only the import lines within the block — the `if TYPE_CHECKING:` guard line is untouched.
+10. **Apply**: Both the top-block and TYPE_CHECKING replacements are applied in a single `WorkspaceEdit` (or no-op if already correct)
 
 ### String/Comment Detection (`text-utils.ts`)
 
@@ -359,18 +365,19 @@ The `isInStringOrComment` function handles:
 3. Load first-party module configuration:
     - Global modules from `important.knownFirstParty` setting
     - Scoped modules from all `pyproject.toml` files in the workspace (root-first)
-4. Create `DiagnosticCollection` for import issues
-5. Register `CodeActionProvider` for quick fixes (reads from `DiagnosticCollection` rather than re-validating)
-6. Register `HoverProvider` for diagnostic hover info
-7. Register commands (`important.fixImports`, `important.showFirstPartyModules`)
-8. Set up event handlers:
+4. Resolve effective line length: explicit `important.lineLength` setting → `[tool.ruff]` `line-length` in `pyproject.toml` → Ruff default (88)
+5. Create `DiagnosticCollection` for import issues
+6. Register `CodeActionProvider` for quick fixes (reads from `DiagnosticCollection` rather than re-validating)
+7. Register `HoverProvider` for diagnostic hover info
+8. Register commands (`important.fixImports`, `important.showFirstPartyModules`)
+9. Set up event handlers:
     - `onDidOpenTextDocument` — validate on open
     - `onDidChangeTextDocument` — validate on type (debounced)
     - `onDidSaveTextDocument` — validate on save (if enabled)
     - `onDidChangeActiveTextEditor` — revalidate when switching files
     - `onDidChangeConfiguration` — re-register handlers and reload first-party modules
-9. Validate all currently-open Python documents (once module resolver is ready)
-10. Watch `pyproject.toml` for changes and auto-reload first-party configuration
+10. Validate all currently-open Python documents (once module resolver is ready)
+11. Watch `pyproject.toml` for changes and auto-reload first-party configuration and line length
 
 ### Deactivation
 
@@ -403,6 +410,7 @@ interface ImportantConfig {
 	styleGuide: "google"; // Style guide (currently only Google)
 	knownFirstParty: readonly string[]; // Module names treated as first-party
 	readFromPyprojectToml: boolean; // Auto-read first-party from pyproject.toml
+	lineLength: number; // Max line length for imports (0 = auto-detect from pyproject.toml)
 }
 ```
 

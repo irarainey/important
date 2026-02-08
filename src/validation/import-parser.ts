@@ -65,6 +65,7 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
             endLine: lineNumber,
             text: trimmed,
             misplaced: false,
+            typeCheckingOnly: false,
         };
     }
 
@@ -84,6 +85,7 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
             endLine: lineNumber,
             text: trimmed,
             misplaced: false,
+            typeCheckingOnly: false,
         };
     }
 
@@ -142,6 +144,7 @@ function parseMultilineImport(
             endLine,
             text: fullText.trim(),
             misplaced: false,
+            typeCheckingOnly: false,
         },
         endLine,
     };
@@ -154,6 +157,9 @@ function parseMultilineImport(
  * top-level block are still detected.  Imports found after the
  * top-level block ends are marked with `misplaced: true` so that
  * diagnostics can flag them and the sorter can relocate them.
+ *
+ * Imports inside `if TYPE_CHECKING:` blocks are marked with
+ * `typeCheckingOnly: true` and exempt from runtime validation.
  *
  * The top-level block is defined as the contiguous run of import
  * statements (plus blank lines, comments, docstrings, `__all__`,
@@ -168,16 +174,40 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
     let foundFirstImport = false;
     let consecutiveNonImportLines = 0;
     let topBlockEnded = false;
+    let inTypeCheckingBlock = false;
+    let typeCheckingIndent = 0;
 
     while (i < document.lineCount) {
         const line = document.lineAt(i).text;
         const trimmed = line.trim();
 
+        // Detect entry into an `if TYPE_CHECKING:` block
+        if (trimmed.startsWith('if TYPE_CHECKING') && trimmed.endsWith(':')) {
+            inTypeCheckingBlock = true;
+            // The body is indented relative to the `if` line
+            typeCheckingIndent = line.length - line.trimStart().length;
+            i++;
+            continue;
+        }
+
+        // Detect exit from a TYPE_CHECKING block: any non-blank line at
+        // the same or lesser indentation as the `if` line ends the block.
+        if (inTypeCheckingBlock && trimmed !== '') {
+            const currentIndent = line.length - line.trimStart().length;
+            if (currentIndent <= typeCheckingIndent) {
+                inTypeCheckingBlock = false;
+            }
+        }
+
         // Check for multiline import (from X import ( without closing ')')
         if (/^\s*from\s+\S+\s+import\s+\(/.test(line) && !line.includes(')')) {
             const multiline = parseMultilineImport(document, i);
             if (multiline) {
-                imports.push({ ...multiline.import, misplaced: topBlockEnded });
+                imports.push({
+                    ...multiline.import,
+                    misplaced: topBlockEnded,
+                    typeCheckingOnly: inTypeCheckingBlock,
+                });
                 if (!topBlockEnded) {
                     foundFirstImport = true;
                     consecutiveNonImportLines = 0;
@@ -190,7 +220,11 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
         // Try single-line parsing
         const parsed = parseImportLine(line, i);
         if (parsed) {
-            imports.push({ ...parsed, misplaced: topBlockEnded });
+            imports.push({
+                ...parsed,
+                misplaced: topBlockEnded,
+                typeCheckingOnly: inTypeCheckingBlock,
+            });
             if (!topBlockEnded) {
                 foundFirstImport = true;
                 consecutiveNonImportLines = 0;

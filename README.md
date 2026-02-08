@@ -11,6 +11,8 @@ A Visual Studio Code extension that validates and formats Python import statemen
 - **Quick fixes** - One-click "Fix All" for import problems
 - **Auto-fix all** - Fix all issues and sort imports with a single command
 - **Smart sorting** - Groups imports correctly and removes unused ones
+- **Multi-line formatting** - Long imports are wrapped into Ruff-style parenthesised multi-line format
+- **`if TYPE_CHECKING` support** - Symbol imports inside `if TYPE_CHECKING:` blocks are allowed; all other rules still apply and the block is sorted in-place
 - **Google Style Guide compliance** - Enforces industry-standard import conventions
 
 ### Validation Rules
@@ -88,20 +90,21 @@ Also available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-cli
 Or via command line:
 
 ```bash
-code --install-extension important-python-0.3.0.vsix
+code --install-extension important-python-0.3.1.vsix
 ```
 
 ## Configuration
 
 Configure via VS Code Settings (`Ctrl+,` / `Cmd+,`):
 
-| Setting                           | Type     | Default    | Description                                                                     |
-| --------------------------------- | -------- | ---------- | ------------------------------------------------------------------------------- |
-| `important.validateOnSave`        | boolean  | `true`     | Validate imports when saving                                                    |
-| `important.validateOnType`        | boolean  | `true`     | Validate imports as you type and after formatter changes                        |
-| `important.styleGuide`            | string   | `"google"` | Style guide to use                                                              |
-| `important.knownFirstParty`       | string[] | `[]`       | Module names to treat as first-party imports (e.g. `["myproject"]`)             |
-| `important.readFromPyprojectToml` | boolean  | `true`     | Auto-read `known-first-party` from `[tool.ruff.lint.isort]` in `pyproject.toml` |
+| Setting                           | Type     | Default    | Description                                                                                              |
+| --------------------------------- | -------- | ---------- | -------------------------------------------------------------------------------------------------------- |
+| `important.validateOnSave`        | boolean  | `true`     | Validate imports when saving                                                                             |
+| `important.validateOnType`        | boolean  | `true`     | Validate imports as you type and after formatter changes                                                 |
+| `important.styleGuide`            | string   | `"google"` | Style guide to use                                                                                       |
+| `important.knownFirstParty`       | string[] | `[]`       | Module names to treat as first-party imports (e.g. `["myproject"]`)                                      |
+| `important.readFromPyprojectToml` | boolean  | `true`     | Auto-read `known-first-party` from `[tool.ruff.lint.isort]` in `pyproject.toml`                          |
+| `important.lineLength`            | integer  | `0`        | Max line length for imports (0 = auto-detect from `[tool.ruff]` in `pyproject.toml`, falling back to 88) |
 
 ### Example settings.json
 
@@ -111,7 +114,8 @@ Configure via VS Code Settings (`Ctrl+,` / `Cmd+,`):
 	"important.validateOnType": true,
 	"important.styleGuide": "google",
 	"important.knownFirstParty": ["myproject", "mypackage"],
-	"important.readFromPyprojectToml": true
+	"important.readFromPyprojectToml": true,
+	"important.lineLength": 0
 }
 ```
 
@@ -125,6 +129,8 @@ The "Fix Imports" command includes automatic import sorting that:
 - Removes unused imports (preserves `__future__` directives)
 - Merges duplicate imports
 - Fixes wildcard imports by converting to qualified module access
+- Wraps long `from` imports into Ruff-style parenthesised multi-line format when they exceed the configured line length
+- Sorts `if TYPE_CHECKING:` block imports in-place (same grouping & alphabetical rules, preserving block indentation)
 
 ### First-Party Module Support
 
@@ -300,7 +306,8 @@ important/
 │       ├── logger.ts          			# Output channel logging
 │       ├── module-resolver.ts  		# Workspace Python module detection
 │       ├── module-symbols.ts   		# Known symbols for wildcard import fixing
-│       ├── pyproject-reader.ts 		# Reads first-party config from pyproject.toml
+│       ├── pyproject-reader.ts 		# Reads first-party config & line-length from pyproject.toml
+│       ├── standard-aliases.ts 		# Well-known import alias mappings
 │       ├── stdlib-modules.ts   		# Python standard library module list
 │       └── text-utils.ts      			# Text/regex utilities
 ├── tests/
@@ -338,14 +345,15 @@ important/
 
 The sample project includes intentional import violations for testing:
 
-| File                          | Violations                                                      |
-| ----------------------------- | --------------------------------------------------------------- |
-| `src/main.py`                 | Multiple imports, wrong order, unused, wildcard, symbol imports |
-| `src/complex_example.py`      | Non-standard aliases, deep namespace, multiline symbol imports  |
-| `src/alias_examples.py`       | Standard vs non-standard aliases, from-alias, typing exemptions |
-| `src/utils/utils.py`          | Relative import, symbol import, wrong alphabetical order        |
-| `src/helpers/helpers.py`      | Multiple imports on one line, unused import                     |
-| `src/models/sample_models.py` | ✅ Clean - no issues (for comparison)                           |
+| File                           | Violations                                                      |
+| ------------------------------ | --------------------------------------------------------------- |
+| `src/main.py`                  | Multiple imports, wrong order, unused, wildcard, symbol imports |
+| `src/complex_example.py`       | Non-standard aliases, deep namespace, multiline symbol imports  |
+| `src/alias_examples.py`        | Standard vs non-standard aliases, from-alias, typing exemptions |
+| `src/utils/utils.py`           | Relative import, symbol import, wrong alphabetical order        |
+| `src/helpers/helpers.py`       | Multiple imports on one line, unused import                     |
+| `src/models/sample_models.py`  | ✅ Clean - no issues (for comparison)                           |
+| `src/type_checking_example.py` | TYPE_CHECKING block with symbol imports, ordering tests         |
 
 ### Available Scripts
 

@@ -1,6 +1,11 @@
 ## 0.3.1
 
 - Added `__future__` to `SYMBOL_IMPORT_EXEMPTIONS` — `from __future__ import annotations` is now exempt from the `import-modules-not-symbols` rule. These are compiler directives, not regular imports, and linters like Ruff explicitly exempt them from unused-import checks (F401) and unnecessary-future-import checks (UP010).
+- **Fix command skips when no issues**: The "Fix Imports in This File" command now returns immediately when validation reports zero issues, preventing the sort step from reformatting already-valid imports.
+- **Multi-line import formatting**: When the sort/fix step rebuilds import lines it now respects a configurable line length. Single-line `from` imports that exceed the limit are wrapped into Ruff-style parenthesised multi-line imports with trailing commas and 4-space indentation. This prevents Ruff from flagging reformatted imports as too long (E501).
+- **`important.lineLength` setting**: New integer setting (default `0`). When `0`, the extension auto-detects `line-length` from the `[tool.ruff]` section in `pyproject.toml`, falling back to Ruff's default of 88. Any positive value overrides auto-detection.
+- **`line-length` auto-detection from `pyproject.toml`**: The extension reads `line-length` from `[tool.ruff]` during initialisation and whenever `pyproject.toml` changes, using the same file-watcher already in place for first-party modules.
+- **`if TYPE_CHECKING` block support**: Imports inside `if TYPE_CHECKING:` blocks are detected by indentation and marked `typeCheckingOnly`. Google style guide rules still apply within the block — ordering, alphabetical sorting, no relative imports, no wildcards, alias validation, and unused-import detection all run normally. The only exemption is Rule 4 (`import-modules-not-symbols`): symbol imports are allowed inside TYPE_CHECKING because they exist purely for type annotations. The sorter sorts TYPE_CHECKING imports in-place (grouped by category, alphabetised, with correct indentation) without moving them out of the block. Multi-line formatting respects the configured line length inside the block. The `from typing import TYPE_CHECKING` import itself is treated as a regular import with normal usage detection (the `if TYPE_CHECKING:` guard counts as a reference).
 
 ## 0.3.0
 

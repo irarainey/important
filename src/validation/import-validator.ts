@@ -118,6 +118,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
     const unusedNamesMap = new Map<ImportStatement, readonly string[]>();
     for (const imp of imports) {
         if (imp.module === '__future__' || imp.names.includes('*')) {
+            // __future__ directives and wildcard imports are never flagged as unused.
             unusedNamesMap.set(imp, []);
         } else {
             unusedNamesMap.set(imp, findUnusedNames(document, documentText, imp, importLines));
@@ -179,7 +180,9 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         // Google style prefers: import module, then use module.Symbol
         // or: from package import module, then use module.Symbol
         // Exemptions per 2.2.4.1: typing, collections.abc, typing_extensions
-        const isExempt = SYMBOL_IMPORT_EXEMPTIONS.some(
+        // Also exempt inside `if TYPE_CHECKING:` — symbol imports for type
+        // annotations are explicitly allowed by the style guide.
+        const isExempt = imp.typeCheckingOnly || SYMBOL_IMPORT_EXEMPTIONS.some(
             exempt => imp.module === exempt || imp.module.startsWith(`${exempt}.`)
         );
 
@@ -335,7 +338,8 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         }
 
         // Rule 10: Misplaced import (not in the top-level import block)
-        if (imp.misplaced) {
+        // TYPE_CHECKING imports are exempt — they belong inside their guard block.
+        if (imp.misplaced && !imp.typeCheckingOnly) {
             issues.push({
                 code: 'misplaced-import',
                 message: 'Import should be at the top of the file (Google Python Style Guide). It will be moved when imports are fixed.',
@@ -348,7 +352,8 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
 
     // Rules 8-9 only apply to top-block imports — misplaced imports will
     // be relocated by the sorter, so checking their order is meaningless.
-    const topBlockImports = imports.filter(imp => !imp.misplaced);
+    // TYPE_CHECKING imports are checked separately below.
+    const topBlockImports = imports.filter(imp => !imp.misplaced && !imp.typeCheckingOnly);
 
     // Rule 8: Check import ordering (__future__ → stdlib → third-party → first-party → local)
     let lastCategory: ImportCategory | undefined;
@@ -391,6 +396,47 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
     }
     // Check the last group
     checkAlphabeticalOrder(document, currentGroupImports, issues);
+
+    // Rules 8-9 also apply within the TYPE_CHECKING block.
+    const typeCheckingImports = imports.filter(imp => imp.typeCheckingOnly);
+    if (typeCheckingImports.length > 0) {
+        // Rule 8 for TYPE_CHECKING block
+        let lastTcCategory: ImportCategory | undefined;
+        for (const imp of typeCheckingImports) {
+            const category = categories.get(imp)!;
+            const currentCategoryIndex = CATEGORY_ORDER.indexOf(category);
+            const lastCategoryIndex = lastTcCategory ? CATEGORY_ORDER.indexOf(lastTcCategory) : -1;
+
+            if (lastTcCategory && currentCategoryIndex < lastCategoryIndex) {
+                issues.push({
+                    code: 'wrong-import-order',
+                    message: `Import ordering violation: ${category} imports should come before ${lastTcCategory} imports (Google Python Style Guide).`,
+                    severity: vscode.DiagnosticSeverity.Information,
+                    range: importRange(document, imp),
+                    import: imp,
+                });
+            }
+
+            if (category !== lastTcCategory) {
+                lastTcCategory = category;
+            }
+        }
+
+        // Rule 9 for TYPE_CHECKING block
+        let tcGroupCategory: ImportCategory | undefined;
+        let tcGroupImports: ImportStatement[] = [];
+        for (const imp of typeCheckingImports) {
+            const category = categories.get(imp)!;
+            if (category !== tcGroupCategory) {
+                checkAlphabeticalOrder(document, tcGroupImports, issues);
+                tcGroupCategory = category;
+                tcGroupImports = [imp];
+            } else {
+                tcGroupImports.push(imp);
+            }
+        }
+        checkAlphabeticalOrder(document, tcGroupImports, issues);
+    }
 
     return { imports, categories, issues, unusedNames: unusedNamesMap, importLines };
 }

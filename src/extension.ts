@@ -5,9 +5,12 @@ import { ImportCodeActionProvider } from './providers/code-action-provider';
 import { ImportHoverProvider } from './providers/hover-provider';
 import { fixAllImports } from './fixes/fix-imports';
 import { initModuleResolver, disposeModuleResolver, ensureModuleResolverReady, setGlobalFirstPartyModules, setScopedFirstPartyModules, getFirstPartyModulesSummary } from './utils/module-resolver';
-import { readFirstPartyFromPyproject } from './utils/pyproject-reader';
+import { readFirstPartyFromPyproject, readLineLengthFromPyproject } from './utils/pyproject-reader';
 import { createOutputChannel, log, logError } from './utils/logger';
 import type { ImportantConfig } from './types';
+
+/** Effective line length for import formatting (resolved from config / pyproject.toml) */
+let effectiveLineLength = 88;
 
 /** Diagnostic collection for import validation issues */
 let diagnosticCollection: vscode.DiagnosticCollection;
@@ -65,7 +68,7 @@ export function activate(context: vscode.ExtensionContext): void {
                 return;
             }
 
-            const changesMade = await fixAllImports(editor);
+            const changesMade = await fixAllImports(editor, effectiveLineLength);
 
             // Revalidate after fixes to update diagnostics
             validateDocument(editor.document);
@@ -202,6 +205,7 @@ function getConfig(): ImportantConfig {
         styleGuide: config.get<'google'>('styleGuide', 'google'),
         knownFirstParty: config.get<string[]>('knownFirstParty', []),
         readFromPyprojectToml: config.get<boolean>('readFromPyprojectToml', true),
+        lineLength: config.get<number>('lineLength', 0),
     };
 }
 
@@ -231,6 +235,18 @@ async function loadFirstPartyModules(): Promise<void> {
     } else {
         log('pyproject.toml reading is disabled.');
         setScopedFirstPartyModules([]);
+    }
+
+    // Resolve effective line length: explicit setting > pyproject.toml > Ruff default (88)
+    if (config.lineLength > 0) {
+        effectiveLineLength = config.lineLength;
+        log(`Line length from settings: ${effectiveLineLength}`);
+    } else if (config.readFromPyprojectToml) {
+        effectiveLineLength = await readLineLengthFromPyproject();
+        log(`Line length (auto-detected): ${effectiveLineLength}`);
+    } else {
+        effectiveLineLength = 88;
+        log(`Line length (default): ${effectiveLineLength}`);
     }
 }
 

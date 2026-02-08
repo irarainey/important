@@ -104,6 +104,12 @@
           "type": "boolean",
           "default": true,
           "description": "Automatically read known-first-party modules from the [tool.ruff.lint.isort] section in pyproject.toml. When enabled, values from pyproject.toml are merged with the knownFirstParty setting."
+        },
+        "important.lineLength": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "description": "Maximum line length for import statements. Lines exceeding this limit are formatted as multi-line imports matching Ruff's style. When 0 (default), auto-detects from the [tool.ruff] section in pyproject.toml, falling back to Ruff's default of 88."
         }
       }
     }
