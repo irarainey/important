@@ -12,7 +12,7 @@ A Visual Studio Code extension that validates and formats Python import statemen
 - **Auto-fix all** - Fix all issues and sort imports with a single command
 - **Smart sorting** - Groups imports correctly and removes unused ones
 - **Multi-line formatting** - Long imports are wrapped into Ruff-style parenthesised multi-line format
-- **`if TYPE_CHECKING` support** - Symbol imports inside `if TYPE_CHECKING:` blocks are allowed; all other rules still apply and the block is sorted in-place
+- **`if TYPE_CHECKING` support** - Symbol imports inside `if TYPE_CHECKING:` or `if typing.TYPE_CHECKING:` blocks are allowed; all other rules still apply and the block is sorted in-place
 - **Google Style Guide compliance** - Enforces industry-standard import conventions
 
 ### Validation Rules
@@ -125,9 +125,10 @@ The "Fix Imports" command includes automatic import sorting that:
 
 - Groups imports into 5 categories: `__future__` → stdlib → third-party → first-party → local
 - Sorts `import` statements before `from` statements within each group, then alphabetically by module name (ignoring case) — matching [Ruff/isort](https://docs.astral.sh/ruff/rules/unsorted-imports/) default behaviour
+- Sorts names within `from` imports using Ruff/isort `order-by-type` convention: `CONSTANT_CASE` names first, then `CamelCase`, then `snake_case`
 - Splits multi-imports (`import os, sys`) into separate lines
 - Removes unused imports (preserves `__future__` directives)
-- Merges duplicate imports
+- Merges duplicate imports (keeps aliased from-imports separate, matching Ruff)
 - Fixes wildcard imports by converting to qualified module access
 - Wraps long `from` imports into Ruff-style parenthesised multi-line format when they exceed the configured line length
 - Sorts `if TYPE_CHECKING:` block imports in-place (same grouping & alphabetical rules, preserving block indentation)
@@ -328,7 +329,7 @@ important/
 │   │       └── utils/utils.py          # Relative imports, symbol imports
 │   └── unit/                           # Automated unit tests (Mocha)
 │       ├── mocks/vscode.ts             # Custom vscode module mock
-│       ├── import-parser.test.ts       # Import parsing (25 tests)
+│       ├── import-parser.test.ts       # Import parsing (29 tests)
 │       ├── import-validator.test.ts    # Validation rules (45 tests)
 │       ├── module-resolver.test.ts     # Module resolution (15 tests)
 │       ├── sort-imports.test.ts        # Import sorting (14 tests)
@@ -376,7 +377,7 @@ The sample project includes intentional import violations for testing:
 
 ### Unit Tests
 
-The extension includes a comprehensive unit test suite (150 tests) covering all core modules. Tests run outside the VS Code extension host using a custom `vscode` module mock.
+The extension includes a comprehensive unit test suite (156 tests) covering all core modules. Tests run outside the VS Code extension host using a custom `vscode` module mock.
 
 ```bash
 npm run test
@@ -391,10 +392,10 @@ The test infrastructure uses:
 
 | Test File                  | Module Tested     | Tests |
 | -------------------------- | ----------------- | ----- |
-| `import-parser.test.ts`    | Import parsing    | 28    |
-| `import-validator.test.ts` | Validation rules  | 51    |
+| `import-parser.test.ts`    | Import parsing    | 29    |
+| `import-validator.test.ts` | Validation rules  | 52    |
 | `module-resolver.test.ts`  | Module resolution | 16    |
-| `sort-imports.test.ts`     | Import sorting    | 17    |
+| `sort-imports.test.ts`     | Import sorting    | 21    |
 | `diagnostics.test.ts`      | Diagnostics       | 7     |
 | `utils.test.ts`            | Text & stdlib     | 27    |
 | `types.test.ts`            | Type definitions  | 4     |
@@ -405,7 +406,7 @@ The test infrastructure uses:
 | ----------------- | --------------------------------- |
 | `npm run compile` | Build with source maps            |
 | `npm run watch`   | Build and watch for changes       |
-| `npm run test`    | Run unit tests (Mocha, 150 tests) |
+| `npm run test`    | Run unit tests (Mocha, 156 tests) |
 | `npm run lint`    | Run ESLint                        |
 | `npm run package` | Create .vsix package              |
 

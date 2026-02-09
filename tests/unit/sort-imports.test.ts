@@ -418,5 +418,104 @@ describe('sort-imports', () => {
             assert.ok(absIdx < exIdx, 'abspath should come before exists');
             assert.ok(exIdx < joinIdx, 'exists should come before join');
         });
+
+        it('sorts CONSTANT_CASE names before CamelCase (Ruff order-by-type)', async () => {
+            // Ruff/isort order-by-type (the default) groups by casing convention:
+            //   CONSTANT_CASE → CamelCase → snake_case
+            // So TYPE_CHECKING should come before Annotated.
+            const sorted = await sortAndGetText([
+                'from typing import Annotated, TYPE_CHECKING',
+                '',
+                'x: Annotated[int, "meta"] = 1',
+                'if TYPE_CHECKING:',
+                '    pass',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            const importLine = sorted!.split('\n').find(l => l.startsWith('from typing'))!;
+            assert.ok(importLine);
+            const tcIdx = importLine.indexOf('TYPE_CHECKING');
+            const annIdx = importLine.indexOf('Annotated');
+            assert.ok(
+                tcIdx < annIdx,
+                `TYPE_CHECKING (${tcIdx}) should come before Annotated (${annIdx})`,
+            );
+        });
+
+        it('sorts mixed casing tiers: CONSTANT_CASE, CamelCase, snake_case', async () => {
+            const sorted = await sortAndGetText([
+                'from mymod import zebra, MAX_SIZE, Widget, alpha, DEFAULT_VALUE, Item',
+                '',
+                'print(zebra, MAX_SIZE, Widget, alpha, DEFAULT_VALUE, Item)',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            const importLine = sorted!.split('\n').find(l => l.startsWith('from mymod'))!;
+            assert.ok(importLine);
+            // Expected order:
+            //   CONSTANT_CASE: DEFAULT_VALUE, MAX_SIZE
+            //   CamelCase:     Item, Widget
+            //   snake_case:    alpha, zebra
+            const positions = ['DEFAULT_VALUE', 'MAX_SIZE', 'Item', 'Widget', 'alpha', 'zebra']
+                .map(n => ({ name: n, pos: importLine.indexOf(n) }));
+            for (let i = 1; i < positions.length; i++) {
+                assert.ok(
+                    positions[i - 1].pos < positions[i].pos,
+                    `${positions[i - 1].name} (${positions[i - 1].pos}) should come before ${positions[i].name} (${positions[i].pos})`,
+                );
+            }
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // Aliased from-imports kept separate (Ruff compatibility)
+    // ------------------------------------------------------------------
+    describe('aliased from-import separation', () => {
+        it('keeps aliased from-import separate from non-aliased for same module', async () => {
+            // Ruff keeps `from X import a` and `from X import b as c` as
+            // separate statements.  Important must not merge them.
+            // Include an out-of-order stdlib import to trigger sorting.
+            const sorted = await sortAndGetText([
+                'import sys',
+                'import os',
+                'from mypackage.orchestration import llm_models',
+                'from mypackage.orchestration import progress_reporter as progress_reporter_module',
+                '',
+                'print(os, sys, llm_models, progress_reporter_module)',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            const lines = sorted!.split('\n').filter(l => l.startsWith('from mypackage.orchestration'));
+            assert.equal(lines.length, 2, 'should produce two separate from-imports');
+            // Non-aliased first
+            assert.ok(
+                lines[0].includes('llm_models'),
+                'first line should be the non-aliased import',
+            );
+            assert.ok(
+                !lines[0].includes(' as '),
+                'first line should have no alias',
+            );
+            // Aliased second
+            assert.ok(
+                lines[1].includes('progress_reporter as progress_reporter_module'),
+                'second line should be the aliased import',
+            );
+        });
+
+        it('still merges multiple non-aliased from-imports for same module', async () => {
+            const sorted = await sortAndGetText([
+                'from mypackage import alpha',
+                'from mypackage import beta',
+                '',
+                'print(alpha, beta)',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            const lines = sorted!.split('\n').filter(l => l.startsWith('from mypackage'));
+            assert.equal(lines.length, 1, 'should merge into one from-import');
+            assert.ok(lines[0].includes('alpha'));
+            assert.ok(lines[0].includes('beta'));
+        });
     });
 });

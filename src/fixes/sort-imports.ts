@@ -12,6 +12,31 @@ interface NormalizedImport {
 }
 
 /**
+ * Returns a numeric tier for a Python name based on its casing convention,
+ * matching Ruff/isort `order-by-type` (the default).
+ *
+ * - 0 = CONSTANT_CASE  (all uppercase, digits, underscores — e.g. `TYPE_CHECKING`)
+ * - 1 = CamelCase       (starts uppercase, contains lowercase — e.g. `Annotated`)
+ * - 2 = snake_case      (starts lowercase — e.g. `config`)
+ */
+function nameCasingTier(name: string): number {
+    if (/^[A-Z0-9_]+$/.test(name)) return 0; // CONSTANT_CASE
+    if (/^[A-Z]/.test(name)) return 1;       // CamelCase
+    return 2;                                 // snake_case / other
+}
+
+/**
+ * Compares two import names using Ruff/isort `order-by-type` semantics:
+ * CONSTANT_CASE names first, then CamelCase, then snake_case.
+ * Within each tier, names are sorted case-insensitively.
+ */
+function compareImportNames(a: string, b: string): number {
+    const tierDiff = nameCasingTier(a) - nameCasingTier(b);
+    if (tierDiff !== 0) return tierDiff;
+    return a.toLowerCase().localeCompare(b.toLowerCase());
+}
+
+/**
  * Sorts all imports in a document according to Google style.
  *
  * Consumes a pre-computed {@link ValidationResult} so that parsing,
@@ -107,11 +132,14 @@ export async function sortImportsInDocument(
         'local': [],
     };
 
-    // Deduplicate imports (merge from imports for same module, skip duplicate imports)
+    // Deduplicate imports (merge from imports for same module, skip duplicate imports).
+    // Aliased from-imports are kept separate from non-aliased ones so the
+    // output matches Ruff/isort, which never combines the two forms.
     const seenImports = new Map<string, NormalizedImport>();
 
     for (const imp of normalized) {
-        const key = `${imp.type}:${imp.module}`;
+        const hasAlias = imp.aliases.size > 0;
+        const key = `${imp.type}:${imp.module}:${hasAlias ? 'aliased' : 'plain'}`;
 
         const existing = seenImports.get(key);
         if (existing) {
@@ -139,13 +167,19 @@ export async function sortImportsInDocument(
 
     // Sort within each group: `import` statements before `from` statements,
     // then alphabetically by module name within each sub-group (ignoring case).
+    // When two from-imports share the same module, non-aliased comes first.
     // This matches Ruff/isort default behaviour (force_sort_within_sections = false).
     for (const category of Object.keys(groups) as ImportCategory[]) {
         groups[category].sort((a, b) => {
             if (a.type !== b.type) {
                 return a.type === 'import' ? -1 : 1;
             }
-            return a.module.toLowerCase().localeCompare(b.module.toLowerCase());
+            const modCmp = a.module.toLowerCase().localeCompare(b.module.toLowerCase());
+            if (modCmp !== 0) return modCmp;
+            // Same module: non-aliased before aliased
+            const aAliased = a.aliases.size > 0 ? 1 : 0;
+            const bAliased = b.aliases.size > 0 ? 1 : 0;
+            return aAliased - bAliased;
         });
     }
 
@@ -160,11 +194,9 @@ export async function sortImportsInDocument(
                     const alias = imp.aliases.get(imp.module);
                     return alias ? `import ${imp.module} as ${alias}` : `import ${imp.module}`;
                 } else {
-                    // Sort names alphabetically within each from-import
-                    // to match Ruff/isort default behaviour.
-                    const sortedNames = [...imp.names].sort((a, b) =>
-                        a.toLowerCase().localeCompare(b.toLowerCase()),
-                    );
+                    // Sort names using Ruff/isort order-by-type:
+                    // CONSTANT_CASE → CamelCase → snake_case, then alphabetically.
+                    const sortedNames = [...imp.names].sort(compareImportNames);
                     const nameFragments = sortedNames.map(n => {
                         const alias = imp.aliases.get(n);
                         return alias ? `${n} as ${alias}` : n;
@@ -223,7 +255,7 @@ export async function sortImportsInDocument(
             // Find the `if TYPE_CHECKING:` header line by scanning backward
             for (let l = tcBlockFirstLine - 1; l >= 0; l--) {
                 const lineText = document.lineAt(l).text.trim();
-                if (lineText.startsWith('if TYPE_CHECKING') && lineText.endsWith(':')) {
+                if ((lineText.startsWith('if TYPE_CHECKING') || lineText.startsWith('if typing.TYPE_CHECKING')) && lineText.endsWith(':')) {
                     tcHeaderLine = l;
                     break;
                 }
@@ -417,10 +449,11 @@ function buildSortedTypeCheckingBlock(
         return undefined;
     }
 
-    // Deduplicate
+    // Deduplicate (keep aliased from-imports separate to match Ruff/isort)
     const seenImports = new Map<string, NormalizedImport>();
     for (const imp of normalized) {
-        const key = `${imp.type}:${imp.module}`;
+        const hasAlias = imp.aliases.size > 0;
+        const key = `${imp.type}:${imp.module}:${hasAlias ? 'aliased' : 'plain'}`;
         const existing = seenImports.get(key);
         if (existing) {
             if (imp.type === 'from' && !imp.names.includes('*') && !existing.names.includes('*')) {
@@ -445,11 +478,15 @@ function buildSortedTypeCheckingBlock(
         groups[imp.category].push(imp);
     }
 
-    // Sort within each group
+    // Sort within each group (non-aliased before aliased for same module)
     for (const category of Object.keys(groups) as ImportCategory[]) {
         groups[category].sort((a, b) => {
             if (a.type !== b.type) return a.type === 'import' ? -1 : 1;
-            return a.module.toLowerCase().localeCompare(b.module.toLowerCase());
+            const modCmp = a.module.toLowerCase().localeCompare(b.module.toLowerCase());
+            if (modCmp !== 0) return modCmp;
+            const aAliased = a.aliases.size > 0 ? 1 : 0;
+            const bAliased = b.aliases.size > 0 ? 1 : 0;
+            return aAliased - bAliased;
         });
     }
 
@@ -468,11 +505,9 @@ function buildSortedTypeCheckingBlock(
                         ? `${indent}import ${imp.module} as ${alias}`
                         : `${indent}import ${imp.module}`;
                 } else {
-                    // Sort names alphabetically within each from-import
-                    // to match Ruff/isort default behaviour.
-                    const sortedNames = [...imp.names].sort((a, b) =>
-                        a.toLowerCase().localeCompare(b.toLowerCase()),
-                    );
+                    // Sort names using Ruff/isort order-by-type:
+                    // CONSTANT_CASE → CamelCase → snake_case, then alphabetically.
+                    const sortedNames = [...imp.names].sort(compareImportNames);
                     const nameFragments = sortedNames.map(n => {
                         const alias = imp.aliases.get(n);
                         return alias ? `${n} as ${alias}` : n;

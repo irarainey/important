@@ -192,8 +192,8 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
             continue;
         }
 
-        // Detect entry into an `if TYPE_CHECKING:` block
-        if (trimmed.startsWith('if TYPE_CHECKING') && trimmed.endsWith(':')) {
+        // Detect entry into an `if TYPE_CHECKING:` or `if typing.TYPE_CHECKING:` block
+        if ((trimmed.startsWith('if TYPE_CHECKING') || trimmed.startsWith('if typing.TYPE_CHECKING')) && trimmed.endsWith(':')) {
             inTypeCheckingBlock = true;
             // The body is indented relative to the `if` line
             typeCheckingIndent = line.length - line.trimStart().length;
@@ -248,6 +248,7 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
                 || trimmed.startsWith('"""')
                 || trimmed.startsWith("'''")
                 || trimmed.startsWith('if TYPE_CHECKING')
+                || trimmed.startsWith('if typing.TYPE_CHECKING')
                 || trimmed.startsWith('__all__');
 
             if (isPermitted) {

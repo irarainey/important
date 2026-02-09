@@ -213,6 +213,25 @@ describe('import-parser', () => {
                 assert.equal(imp.misplaced, false, `${imp.module} should not be misplaced`);
             }
         });
+
+        it('recognises if typing.TYPE_CHECKING: as a type checking block', () => {
+            const doc = createMockDocument([
+                'import typing',
+                '',
+                'if typing.TYPE_CHECKING:',
+                '    from collections import abc',
+                '',
+                'import os',
+            ].join('\n'));
+            const imports = parseImports(doc as any);
+
+            const tcImports = imports.filter((i: any) => i.typeCheckingOnly);
+            const regularImports = imports.filter((i: any) => !i.typeCheckingOnly);
+
+            assert.equal(tcImports.length, 1);
+            assert.equal(tcImports[0].module, 'collections');
+            assert.equal(regularImports.length, 2); // typing + os
+        });
     });
 
     // ------------------------------------------------------------------

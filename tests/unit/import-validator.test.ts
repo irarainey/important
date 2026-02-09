@@ -146,6 +146,19 @@ describe('import-validator', () => {
             const tcIssues = issues.filter(i => i.import.typeCheckingOnly);
             assert.equal(tcIssues.length, 0);
         });
+
+        it('checks alias for dot-access when name is aliased', () => {
+            // `from X import progress_reporter as progress_reporter_module`
+            // Code uses `progress_reporter_module.start()` — the alias has
+            // dot-access, so this is a module import and should NOT be flagged.
+            const doc = createMockDocument([
+                'from mypackage.orchestration import progress_reporter as progress_reporter_module',
+                '',
+                'progress_reporter_module.start()',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
+            assert.equal(issues.length, 0, 'aliased module with dot-access via alias should not be flagged');
+        });
     });
 
     // ------------------------------------------------------------------

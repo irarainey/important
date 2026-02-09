@@ -221,18 +221,25 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                 // PascalCase names are almost certainly classes/types whose
                 // dot access (e.g. Config.from_dict()) should not suppress
                 // the violation.
-                const isPascalCase = /^[A-Z]/.test(name);
-                if (!isPascalCase) {
-                    const dotAccessPattern = new RegExp(`\\b${escapeRegex(name)}\\.\\w`, 'g');
-                    let dotMatch;
-                    while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
-                        const pos = document.positionAt(dotMatch.index);
-                        if (pos.line >= imp.line && pos.line <= imp.endLine) continue;
-                        if (multilineStringLines.has(pos.line)) continue;
-                        const lineText = document.lineAt(pos.line).text;
-                        const beforeText = lineText.substring(0, pos.character);
-                        if (isInStringOrComment(beforeText)) continue;
-                        return true;
+                // When the name has an alias (e.g. `import Y as Z`), check
+                // the alias for dot-access too — code uses the alias, not
+                // the original name.
+                const alias = imp.aliases.get(name);
+                const namesToCheck = alias ? [name, alias] : [name];
+                for (const checkName of namesToCheck) {
+                    const isPascalCase = /^[A-Z]/.test(checkName);
+                    if (!isPascalCase) {
+                        const dotAccessPattern = new RegExp(`\\b${escapeRegex(checkName)}\\.\\w`, 'g');
+                        let dotMatch;
+                        while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
+                            const pos = document.positionAt(dotMatch.index);
+                            if (pos.line >= imp.line && pos.line <= imp.endLine) continue;
+                            if (multilineStringLines.has(pos.line)) continue;
+                            const lineText = document.lineAt(pos.line).text;
+                            const beforeText = lineText.substring(0, pos.character);
+                            if (isInStringOrComment(beforeText)) continue;
+                            return true;
+                        }
                     }
                 }
                 return false;

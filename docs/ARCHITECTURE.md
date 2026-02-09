@@ -244,7 +244,7 @@ The `import-modules-not-symbols` rule uses a three-tier approach to distinguish 
 
 1. **Definitive filesystem check**: `isModuleFile()` checks whether the module path (e.g. `sample.service.config`) resolves to a `.py` file in the workspace. If it does, everything imported from it is definitively a symbol — a `.py` file cannot contain sub-modules. The violation is flagged immediately. The suffix index that powers this check skips single-segment suffixes — they are ambiguous between a package directory and a same-named file inside it (e.g. `helpers/helpers.py` would otherwise produce a bare `helpers` suffix that collides with the `helpers` package).
 2. **Sub-module filesystem check**: `isWorkspaceModule()` checks whether the _imported name_ resolves to a `.py` file or package within the parent module's namespace. This check runs for all module depths (including single-segment modules like `from helpers import helpers`). If the imported name is a module, it is treated as a module import (not flagged).
-3. **Dot-access heuristic**: If a snake_case imported name is used with dot access (`name.attr`) in the file, it is treated as a module. PascalCase names (starting with an uppercase letter) skip this heuristic, as they are almost certainly classes whose dot access (e.g. `Config.from_dict()`) should not suppress the violation.
+3. **Dot-access heuristic**: If a snake_case imported name (or its alias) is used with dot access (`name.attr`) in the file, it is treated as a module. When the import has an `as` alias (e.g. `from X import y as z`), both the original name and the alias are checked for dot-access patterns — code uses the alias, not the original name. PascalCase names (starting with an uppercase letter) skip this heuristic, as they are almost certainly classes whose dot access (e.g. `Config.from_dict()`) should not suppress the violation.
 
 Exemptions per Google style 2.2.4.1: `typing`, `collections.abc`, `typing_extensions`, and `six.moves` are exempt from this rule. Additionally, `__future__` is exempt because these are compiler directives (e.g. `from __future__ import annotations` enables PEP 563 postponed evaluation). Imports inside `if TYPE_CHECKING:` blocks are also exempt — symbol imports for type annotations are explicitly allowed by the style guide. The rule applies to all other modules including stdlib — importing symbols from stdlib modules (e.g. `from os.path import join`) is flagged the same as third-party symbol imports. All other rules (no relative imports, no wildcards, ordering, unused-import detection, alias validation) still apply within `TYPE_CHECKING` blocks.
 
@@ -281,7 +281,7 @@ The parser:
 6. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
 7. Scans the **entire file** — the top-level import block is determined by the 2-consecutive-non-import-line heuristic (blank lines, comments, docstrings, `__all__`, and `if TYPE_CHECKING` guards are permitted), but imports found after the block closes are still parsed and marked with `misplaced: true`
 8. **Skips multi-line strings** — pre-computes which lines are inside triple-quoted strings (via `getMultilineStringLines()`) and skips them entirely, preventing import-like text in docstrings or block strings from being parsed as real imports
-9. Detects `if TYPE_CHECKING:` blocks by indentation: when the parser encounters this guard line it marks all subsequent imports at deeper indentation as `typeCheckingOnly: true` until the block ends (a non-blank line at the same or lesser indentation)
+9. Detects `if TYPE_CHECKING:` and `if typing.TYPE_CHECKING:` blocks by indentation: when the parser encounters either guard line it marks all subsequent imports at deeper indentation as `typeCheckingOnly: true` until the block ends (a non-blank line at the same or lesser indentation)
 10. Misplaced imports are flagged by the validator (Rule 10) and relocated to the top by the sorter; `typeCheckingOnly` imports are exempt from relocation but are sorted in-place within their block
 
 ### Symbol Usage Detection (`text-utils.ts`)
@@ -344,9 +344,9 @@ The fix command (`fixAllImports`) guards the entire pipeline with an early exit:
 1. **Read** parsed imports, categories, and unused names from `ValidationResult`
 2. **Normalize**: Expand `import os, sys` → separate imports
 3. **Filter**: Remove imports where all names are unused (uses pre-computed `unusedNames` map; preserves `__future__` directives). When a name has an `as` alias, the alias is checked for usage instead of the original name.
-4. **Deduplicate**: Merge `from X import a` and `from X import b` (aliases are preserved during merging)
+4. **Deduplicate**: Merge `from X import a` and `from X import b` — but only when neither has aliases. Aliased from-imports (`from X import y as z`) are kept as separate statements to match Ruff/isort behaviour, preventing a fix→Ruff→fix cycle.
 5. **Categorize**: Use pre-computed `categories` map (future / stdlib / third-party / first-party / local)
-6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case) — matching Ruff/isort default behaviour. Names within each `from` import are also sorted alphabetically (e.g. `from X import a, b, c`).
+6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case); when two from-imports share the same module, non-aliased comes before aliased — matching Ruff/isort default behaviour. Names within each `from` import are sorted using `order-by-type` convention: `CONSTANT_CASE` names first (e.g. `TYPE_CHECKING`), then `CamelCase` (e.g. `Annotated`), then `snake_case` (e.g. `config`), with alphabetical sorting within each tier.
 7. **Format**: Join with blank lines between categories, reconstructing `as` clauses where present. For `from` imports, if the single-line form exceeds the configured line length it is wrapped into Ruff-style parenthesised multi-line format with 4-space indentation and trailing commas.
 8. **Relocate**: If misplaced imports exist, delete them from their scattered positions (bottom-up to preserve line numbers) and merge into the top block
 9. **TYPE_CHECKING block**: `typeCheckingOnly` imports are sorted separately using the same normalise → deduplicate → group → sort → format pipeline but with the block's indentation preserved. Blank lines between categories and multi-line wrapping (adjusted for indent) are applied. The sorted text replaces only the import lines within the block — the `if TYPE_CHECKING:` guard line is untouched. When the TC block is **embedded** between regular imports (regular imports exist both above and below), the sorter detects this layout, locates the `if TYPE_CHECKING:` header, and builds a single combined replacement covering the regular imports and the TC block — preventing overlapping edits that would destroy the block.
@@ -463,7 +463,7 @@ To support wildcard fixing for a new module:
 
 ### Unit Tests
 
-The extension includes a comprehensive unit test suite (150 tests across 7 files) that runs outside the VS Code extension host.
+The extension includes a comprehensive unit test suite (156 tests across 7 files) that runs outside the VS Code extension host.
 
 ```bash
 npm run test
@@ -481,10 +481,10 @@ npm run test
 
 | Test File                  | Module Tested                                                                              | Tests |
 | -------------------------- | ------------------------------------------------------------------------------------------ | ----- |
-| `import-parser.test.ts`    | Import parsing (single/multi-line, TYPE_CHECKING, misplaced, docstrings)                   | 28    |
-| `import-validator.test.ts` | All 10 validation rules, categories, severity, unused names                                | 51    |
+| `import-parser.test.ts`    | Import parsing (single/multi-line, TYPE_CHECKING, misplaced, docstrings)                   | 29    |
+| `import-validator.test.ts` | All 10 validation rules, categories, severity, unused names                                | 52    |
 | `module-resolver.test.ts`  | `isWorkspaceModule`, `isModuleFile`, `isLocalModule`, first-party                          | 16    |
-| `sort-imports.test.ts`     | Grouping, sorting, dedup, unused removal, TC blocks, wrapping, name sorting                | 17    |
+| `sort-imports.test.ts`     | Grouping, sorting, dedup, unused removal, TC blocks, wrapping, name sorting, alias sep     | 21    |
 | `diagnostics.test.ts`      | `issuesToDiagnostics`, validation cache lifecycle                                          | 7     |
 | `utils.test.ts`            | `escapeRegex`, `isInStringOrComment`, `isNameUsedOutsideLines`, docstring skipping, stdlib | 27    |
 | `types.test.ts`            | `CATEGORY_ORDER` structure and ordering                                                    | 4     |
@@ -495,7 +495,7 @@ npm run test
 | ----------------- | --------------------------------- |
 | `npm run compile` | Build with source maps            |
 | `npm run watch`   | Build and watch for changes       |
-| `npm run test`    | Run unit tests (Mocha, 150 tests) |
+| `npm run test`    | Run unit tests (Mocha, 156 tests) |
 | `npm run lint`    | Run ESLint                        |
 | `npm run package` | Create .vsix package              |
 
