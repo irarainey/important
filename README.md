@@ -128,7 +128,7 @@ The "Fix Imports" command includes automatic import sorting that:
 - Sorts names within `from` imports using Ruff/isort `order-by-type` convention: `CONSTANT_CASE` names first, then `CamelCase`, then `snake_case`
 - Splits multi-imports (`import os, sys`) into separate lines
 - Removes unused imports (preserves `__future__` directives)
-- Merges duplicate imports (keeps aliased from-imports separate, matching Ruff)
+- Merges duplicate imports (non-aliased only; each aliased from-import stays on its own line, matching Ruff)
 - Fixes wildcard imports by converting to qualified module access
 - Wraps long `from` imports into Ruff-style parenthesised multi-line format when they exceed the configured line length
 - Sorts `if TYPE_CHECKING:` block imports in-place (same grouping & alphabetical rules, preserving block indentation)

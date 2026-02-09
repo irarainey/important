@@ -517,5 +517,38 @@ describe('sort-imports', () => {
             assert.ok(lines[0].includes('alpha'));
             assert.ok(lines[0].includes('beta'));
         });
+
+        it('keeps multiple aliased from-imports from same module as separate statements', async () => {
+            // Ruff/isort never merge aliased imports — each stays on its own line.
+            // e.g. `from X import a as x, b as y` is formatted as two lines.
+            const sorted = await sortAndGetText([
+                'import sys',
+                'import os',
+                'from openai.resources.chat import chat as openai_chat',
+                'from openai.resources.chat import completions as openai_completions',
+                '',
+                'print(os, sys, openai_chat, openai_completions)',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            const aliasedLines = sorted!.split('\n').filter(l => l.startsWith('from openai.resources.chat'));
+            assert.equal(aliasedLines.length, 2, 'should keep two separate aliased from-imports');
+            // Each line should have its own alias
+            assert.ok(
+                aliasedLines.some(l => l.includes('chat as openai_chat')),
+                'should have "chat as openai_chat" on its own line',
+            );
+            assert.ok(
+                aliasedLines.some(l => l.includes('completions as openai_completions')),
+                'should have "completions as openai_completions" on its own line',
+            );
+            // Neither line should contain both aliases merged
+            for (const line of aliasedLines) {
+                assert.ok(
+                    !(line.includes('openai_chat') && line.includes('openai_completions')),
+                    'aliased imports should not be merged onto one line',
+                );
+            }
+        });
     });
 });

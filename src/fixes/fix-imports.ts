@@ -144,9 +144,14 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
     // with all `z.xxx` → `y.xxx` replacements.
     const fromAliasIssues = issues.filter(i => i.code === 'unnecessary-from-alias');
     if (fromAliasIssues.length > 0) {
+        log(`Fixing ${fromAliasIssues.length} unnecessary from-alias issue(s).`);
         const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
         const freshResult = getValidation(freshDoc);
         const currentFromAliasIssues = freshResult.issues.filter(i => i.code === 'unnecessary-from-alias');
+
+        if (currentFromAliasIssues.length !== fromAliasIssues.length) {
+            log(`Warning: from-alias issue count changed from ${fromAliasIssues.length} to ${currentFromAliasIssues.length} after re-validation.`);
+        }
 
         const fromAliasTransformations: Array<{
             oldAlias: string;
@@ -170,10 +175,26 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
             // Collect the original names whose aliases are flagged
             const flaggedNames = new Set<string>();
             for (const issue of lineIssues) {
-                for (const [original, alias] of issue.import.aliases) {
-                    if (issue.message.includes(`${original} as ${alias}`)) {
-                        flaggedNames.add(original);
-                        fromAliasTransformations.push({ oldAlias: alias, newName: original });
+                // Extract the specific (original, alias) pair from the message.
+                // Message format: 'from MODULE import ORIGINAL as ALIAS' — ...
+                const messageMatch = issue.message.match(/^'from \S+ import (\S+) as (\S+)'/);
+                if (messageMatch) {
+                    const [, msgOriginal, msgAlias] = messageMatch;
+                    // Verify this alias exists in the import
+                    if (imp.aliases.get(msgOriginal) === msgAlias) {
+                        flaggedNames.add(msgOriginal);
+                        fromAliasTransformations.push({ oldAlias: msgAlias, newName: msgOriginal });
+                    } else {
+                        log(`Warning: extracted alias '${msgOriginal} as ${msgAlias}' doesn't match import aliases.`);
+                    }
+                } else {
+                    // Fallback: try matching each alias against the message
+                    for (const [original, alias] of issue.import.aliases) {
+                        const pattern = `${original} as ${alias}`;
+                        if (issue.message.includes(pattern)) {
+                            flaggedNames.add(original);
+                            fromAliasTransformations.push({ oldAlias: alias, newName: original });
+                        }
                     }
                 }
             }
@@ -191,6 +212,7 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
         }
 
         if (fromAliasTransformations.length > 0) {
+            log(`Removing ${fromAliasTransformations.length} unnecessary from-alias(es) and updating references.`);
             await vscode.workspace.applyEdit(fromAliasEdit);
             madeChanges = true;
 
@@ -205,6 +227,9 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
             }
 
             await vscode.workspace.applyEdit(usageEdit);
+        } else if (currentFromAliasIssues.length > 0) {
+            // We found issues but couldn't extract transformations - log for debugging
+            log(`Warning: ${currentFromAliasIssues.length} from-alias issue(s) found but no transformations extracted.`);
         }
     }
 

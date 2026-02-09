@@ -360,7 +360,7 @@ The fix command (`fixAllImports`) guards the entire pipeline with an early exit:
 1. **Read** parsed imports, categories, and unused names from `ValidationResult`
 2. **Normalize**: Expand `import os, sys` → separate imports
 3. **Filter**: Remove imports where all names are unused (uses pre-computed `unusedNames` map; preserves `__future__` directives). When a name has an `as` alias, the alias is checked for usage instead of the original name.
-4. **Deduplicate**: Merge `from X import a` and `from X import b` — but only when neither has aliases. Aliased from-imports (`from X import y as z`) are kept as separate statements to match Ruff/isort behaviour, preventing a fix→Ruff→fix cycle.
+4. **Deduplicate**: Merge `from X import a` and `from X import b` — but only when neither has aliases. Aliased from-imports (`from X import y as z`) are **never merged** — each stays as its own separate statement, even when multiple aliased imports share the same module (e.g. `from X import a as x` and `from X import b as y`). This matches Ruff/isort behaviour and prevents fix→Ruff→fix cycles.
 5. **Categorize**: Use pre-computed `categories` map (future / stdlib / third-party / first-party / local)
 6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case); when two from-imports share the same module, non-aliased comes before aliased — matching Ruff/isort default behaviour. Names within each `from` import are sorted using `order-by-type` convention: `CONSTANT_CASE` names first (e.g. `TYPE_CHECKING`), then `CamelCase` (e.g. `Annotated`), then `snake_case` (e.g. `config`), with alphabetical sorting within each tier.
 7. **Format**: Join with blank lines between categories, reconstructing `as` clauses where present. For `from` imports, if the single-line form exceeds the configured line length it is wrapped into Ruff-style parenthesised multi-line format with 4-space indentation and trailing commas.
@@ -498,9 +498,9 @@ npm run test
 | Test File                  | Module Tested                                                                              | Tests |
 | -------------------------- | ------------------------------------------------------------------------------------------ | ----- |
 | `import-parser.test.ts`    | Import parsing (single/multi-line, TYPE_CHECKING, misplaced, docstrings)                   | 29    |
-| `import-validator.test.ts` | All 10 validation rules, categories, severity, unused names                                | 52    |
+| `import-validator.test.ts` | All 10 validation rules, categories, severity, unused names                                | 55    |
 | `module-resolver.test.ts`  | `isWorkspaceModule`, `isModuleFile`, `isLocalModule`, first-party                          | 16    |
-| `sort-imports.test.ts`     | Grouping, sorting, dedup, unused removal, TC blocks, wrapping, name sorting, alias sep     | 21    |
+| `sort-imports.test.ts`     | Grouping, sorting, dedup, unused removal, TC blocks, wrapping, name sorting, alias sep     | 22    |
 | `diagnostics.test.ts`      | `issuesToDiagnostics`, validation cache lifecycle                                          | 7     |
 | `utils.test.ts`            | `escapeRegex`, `isInStringOrComment`, `isNameUsedOutsideLines`, docstring skipping, stdlib | 27    |
 | `types.test.ts`            | `CATEGORY_ORDER` structure and ordering                                                    | 4     |
@@ -511,7 +511,7 @@ npm run test
 | ----------------- | --------------------------------- |
 | `npm run compile` | Build with source maps            |
 | `npm run watch`   | Build and watch for changes       |
-| `npm run test`    | Run unit tests (Mocha, 156 tests) |
+| `npm run test`    | Run unit tests (Mocha, 160 tests) |
 | `npm run lint`    | Run ESLint                        |
 | `npm run package` | Create .vsix package              |
 

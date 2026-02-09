@@ -205,6 +205,64 @@ describe('import-validator', () => {
             // "loads" appears in two imports → count >= 2 → alias is justified
             assert.ok(!hasIssue(doc as any, 'unnecessary-from-alias'));
         });
+
+        it('flags multiline import with unnecessary alias', () => {
+            const doc = createMockDocument([
+                'from access_control_checker import (',
+                '    datamodels as access_control_datamodels,',
+                ')',
+                '',
+                'print(access_control_datamodels.field)',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'unnecessary-from-alias');
+            assert.equal(issues.length, 1);
+            // Verify the message contains the pattern used by fix-imports to identify the alias
+            assert.ok(issues[0].message.includes('datamodels as access_control_datamodels'),
+                `Expected message to contain 'datamodels as access_control_datamodels', got: ${issues[0].message}`);
+            // Verify the import.aliases map is correctly populated
+            assert.equal(issues[0].import.aliases.size, 1);
+            assert.equal(issues[0].import.aliases.get('datamodels'), 'access_control_datamodels');
+        });
+
+        it('flags single-line import with unnecessary alias', () => {
+            const doc = createMockDocument([
+                'from access_control_checker import datamodels as access_control_datamodels',
+                '',
+                'print(access_control_datamodels.field)',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'unnecessary-from-alias');
+            assert.equal(issues.length, 1);
+            // Verify the message contains the pattern
+            assert.ok(issues[0].message.includes('datamodels as access_control_datamodels'));
+            // Verify the import.aliases map
+            assert.equal(issues[0].import.aliases.get('datamodels'), 'access_control_datamodels');
+        });
+
+        it('message pattern matches for fix logic', () => {
+            // This test simulates what the fix logic does to find the alias
+            const doc = createMockDocument([
+                'from access_control_checker import datamodels as access_control_datamodels',
+                '',
+                'print(access_control_datamodels.field)',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'unnecessary-from-alias');
+            assert.equal(issues.length, 1);
+
+            const issue = issues[0];
+            let matchFound = false;
+
+            // Simulate the fix logic's pattern matching
+            for (const [original, alias] of issue.import.aliases) {
+                const pattern = `${original} as ${alias}`;
+                if (issue.message.includes(pattern)) {
+                    matchFound = true;
+                    assert.equal(original, 'datamodels');
+                    assert.equal(alias, 'access_control_datamodels');
+                }
+            }
+
+            assert.ok(matchFound, `Fix logic pattern match failed. Message: ${issue.message}, Aliases: ${Array.from(issue.import.aliases.entries())}`);
+        });
     });
 
     // ------------------------------------------------------------------

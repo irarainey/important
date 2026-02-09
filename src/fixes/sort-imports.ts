@@ -133,29 +133,28 @@ export async function sortImportsInDocument(
     };
 
     // Deduplicate imports (merge from imports for same module, skip duplicate imports).
-    // Aliased from-imports are kept separate from non-aliased ones so the
-    // output matches Ruff/isort, which never combines the two forms.
+    // Aliased from-imports are NEVER merged — Ruff/isort keeps each aliased import
+    // as its own statement. Non-aliased from-imports for the same module are merged.
     const seenImports = new Map<string, NormalizedImport>();
 
     for (const imp of normalized) {
         const hasAlias = imp.aliases.size > 0;
-        const key = `${imp.type}:${imp.module}:${hasAlias ? 'aliased' : 'plain'}`;
+        // For aliased imports, use a unique key per name to prevent merging.
+        // For non-aliased imports, group by module to allow merging.
+        const aliasKey = hasAlias ? `:${[...imp.names].sort().join(',')}` : '';
+        const key = `${imp.type}:${imp.module}:${hasAlias ? 'aliased' : 'plain'}${aliasKey}`;
 
         const existing = seenImports.get(key);
         if (existing) {
-            if (imp.type === 'from' && !imp.names.includes('*') && !existing.names.includes('*')) {
-                // Merge names for from imports
+            if (imp.type === 'from' && !imp.names.includes('*') && !existing.names.includes('*') && !hasAlias) {
+                // Only merge names for NON-aliased from imports
                 for (const name of imp.names) {
                     if (!existing.names.includes(name)) {
                         existing.names.push(name);
                     }
-                    const alias = imp.aliases.get(name);
-                    if (alias) {
-                        existing.aliases.set(name, alias);
-                    }
                 }
             }
-            // For 'import' type, duplicate is just ignored
+            // For 'import' type or aliased from-imports, duplicate is just ignored
         } else {
             seenImports.set(key, imp);
         }
