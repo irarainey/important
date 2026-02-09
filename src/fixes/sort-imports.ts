@@ -448,22 +448,25 @@ function buildSortedTypeCheckingBlock(
         return undefined;
     }
 
-    // Deduplicate (keep aliased from-imports separate to match Ruff/isort)
+    // Deduplicate (aliased from-imports are NEVER merged to match Ruff/isort)
     const seenImports = new Map<string, NormalizedImport>();
     for (const imp of normalized) {
         const hasAlias = imp.aliases.size > 0;
-        const key = `${imp.type}:${imp.module}:${hasAlias ? 'aliased' : 'plain'}`;
+        // For aliased imports, use a unique key per name to prevent merging.
+        // For non-aliased imports, group by module to allow merging.
+        const aliasKey = hasAlias ? `:${[...imp.names].sort().join(',')}` : '';
+        const key = `${imp.type}:${imp.module}:${hasAlias ? 'aliased' : 'plain'}${aliasKey}`;
         const existing = seenImports.get(key);
         if (existing) {
-            if (imp.type === 'from' && !imp.names.includes('*') && !existing.names.includes('*')) {
+            if (imp.type === 'from' && !imp.names.includes('*') && !existing.names.includes('*') && !hasAlias) {
+                // Only merge names for NON-aliased from imports
                 for (const name of imp.names) {
                     if (!existing.names.includes(name)) {
                         existing.names.push(name);
                     }
-                    const alias = imp.aliases.get(name);
-                    if (alias) existing.aliases.set(name, alias);
                 }
             }
+            // For 'import' type or aliased from-imports, duplicate is just ignored
         } else {
             seenImports.set(key, imp);
         }
