@@ -160,7 +160,12 @@ export async function sortImportsInDocument(
                     const alias = imp.aliases.get(imp.module);
                     return alias ? `import ${imp.module} as ${alias}` : `import ${imp.module}`;
                 } else {
-                    const nameFragments = imp.names.map(n => {
+                    // Sort names alphabetically within each from-import
+                    // to match Ruff/isort default behaviour.
+                    const sortedNames = [...imp.names].sort((a, b) =>
+                        a.toLowerCase().localeCompare(b.toLowerCase()),
+                    );
+                    const nameFragments = sortedNames.map(n => {
                         const alias = imp.aliases.get(n);
                         return alias ? `${n} as ${alias}` : n;
                     });
@@ -463,7 +468,12 @@ function buildSortedTypeCheckingBlock(
                         ? `${indent}import ${imp.module} as ${alias}`
                         : `${indent}import ${imp.module}`;
                 } else {
-                    const nameFragments = imp.names.map(n => {
+                    // Sort names alphabetically within each from-import
+                    // to match Ruff/isort default behaviour.
+                    const sortedNames = [...imp.names].sort((a, b) =>
+                        a.toLowerCase().localeCompare(b.toLowerCase()),
+                    );
+                    const nameFragments = sortedNames.map(n => {
                         const alias = imp.aliases.get(n);
                         return alias ? `${n} as ${alias}` : n;
                     });

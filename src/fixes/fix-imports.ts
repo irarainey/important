@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
 import { getValidation } from '../validation/validation-cache';
-import { isInStringOrComment, escapeRegex } from '../utils/text-utils';
+import { isInStringOrComment, escapeRegex, getMultilineStringLines } from '../utils/text-utils';
 import { getModuleSymbols, hasModuleSymbols } from '../utils/module-symbols';
 import { sortImportsInDocument } from './sort-imports';
 import { ensureModuleResolverReady } from '../utils/module-resolver';
@@ -252,6 +252,7 @@ function replaceSymbolUsagesOutsideImports(
     importLines: ReadonlySet<number>,
 ): void {
     const symbolRegex = new RegExp(`\\b${escapeRegex(symbol)}\\b`, 'g');
+    const mlLines = getMultilineStringLines(document);
     let match;
 
     while ((match = symbolRegex.exec(documentText)) !== null) {
@@ -259,6 +260,11 @@ function replaceSymbolUsagesOutsideImports(
 
         // Skip if this is on an import line
         if (importLines.has(matchStart.line)) {
+            continue;
+        }
+
+        // Skip if inside a multi-line string (docstring)
+        if (mlLines.has(matchStart.line)) {
             continue;
         }
 

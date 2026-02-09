@@ -12,6 +12,61 @@ export function escapeRegex(str: string): string {
 }
 
 /**
+ * Returns the set of line numbers that fall inside a multi-line string
+ * (triple-quoted `\"\"\"` or `'''`).  Lines containing only the opening
+ * or closing delimiter are **not** included — only the interior lines
+ * that definitely hold string content.
+ *
+ * This is used to prevent the import parser and symbol-usage scanner
+ * from treating import-like text inside docstrings as real code.
+ */
+export function getMultilineStringLines(document: vscode.TextDocument): ReadonlySet<number> {
+    const mlLines = new Set<number>();
+    let inTriple = false;
+    let tripleChar = '';
+
+    for (let i = 0; i < document.lineCount; i++) {
+        const lineText = document.lineAt(i).text;
+
+        if (inTriple) {
+            // Check if this line closes the triple-quote
+            const closeIdx = lineText.indexOf(tripleChar);
+            if (closeIdx !== -1) {
+                // Closing delimiter found — the portion before it is
+                // still string content, so mark this line.
+                mlLines.add(i);
+                inTriple = false;
+            } else {
+                mlLines.add(i);
+            }
+        } else {
+            // Look for an opening triple-quote that is NOT closed on the same line.
+            // We need to handle both `"""` and `'''`.
+            for (const delim of ['"""', "'''"] as const) {
+                const openIdx = lineText.indexOf(delim);
+                if (openIdx === -1) continue;
+
+                // Check if there's a matching close on the same line
+                // (after the opening delimiter).
+                const afterOpen = openIdx + 3;
+                const closeIdx = lineText.indexOf(delim, afterOpen);
+                if (closeIdx !== -1) {
+                    // Single-line triple-quoted string — not multi-line
+                    continue;
+                }
+
+                // Triple-quote opened but not closed on this line
+                inTriple = true;
+                tripleChar = delim;
+                break;
+            }
+        }
+    }
+
+    return mlLines;
+}
+
+/**
  * Checks if a name is used anywhere in the document outside a set of
  * excluded lines (typically the import lines themselves).
  */
@@ -20,8 +75,10 @@ export function isNameUsedOutsideLines(
     documentText: string,
     name: string,
     excludeLines: ReadonlySet<number>,
+    multilineStringLines?: ReadonlySet<number>,
 ): boolean {
     const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
+    const mlLines = multilineStringLines ?? getMultilineStringLines(document);
 
     let match;
     while ((match = pattern.exec(documentText)) !== null) {
@@ -29,6 +86,18 @@ export function isNameUsedOutsideLines(
 
         // Skip if this is on an excluded line (import lines)
         if (excludeLines.has(pos.line)) {
+            continue;
+        }
+
+        // Skip if inside a multi-line string (docstring)
+        if (mlLines.has(pos.line)) {
+            continue;
+        }
+
+        // Skip if preceded by a dot — the name is part of a qualified
+        // reference (e.g. `module.Symbol`) and the bare import of
+        // `Symbol` is not what provides it.
+        if (match.index > 0 && documentText[match.index - 1] === '.') {
             continue;
         }
 

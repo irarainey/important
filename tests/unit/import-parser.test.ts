@@ -319,5 +319,57 @@ describe('import-parser', () => {
             assert.equal(imports[0].module, '__future__');
             assert.deepEqual(imports[0].names, ['annotations']);
         });
+
+        it('ignores import-like text inside a multi-line docstring', () => {
+            const doc = createMockDocument([
+                '"""',
+                'from other_library.core.base import BaseProcessor, ProcessorConfig',
+                'from other_library.core.exceptions import ProcessingError',
+                '"""',
+                '',
+                'import os',
+                '',
+                'print(os.name)',
+            ].join('\n'));
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.equal(imports[0].module, 'os');
+        });
+
+        it('ignores imports inside a module-level docstring with content', () => {
+            const doc = createMockDocument([
+                '"""Module docstring.',
+                '',
+                'Example:',
+                '    from os.path import join',
+                '    import sys',
+                '"""',
+                '',
+                'import logging',
+                '',
+                'print(logging.getLogger())',
+            ].join('\n'));
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.equal(imports[0].module, 'logging');
+        });
+
+        it('handles single-line triple-quoted strings (not multi-line)', () => {
+            const doc = createMockDocument([
+                'x = """import os"""',
+                'import sys',
+                '',
+                'print(sys.version)',
+            ].join('\n'));
+            const imports = parseImports(doc as any);
+
+            // The import-like text in the single-line triple-quoted string
+            // is not on a line the parser would match (it has x = prefix),
+            // so only `import sys` is parsed.
+            assert.equal(imports.length, 1);
+            assert.equal(imports[0].module, 'sys');
+        });
     });
 });

@@ -89,6 +89,40 @@ describe('text-utils', () => {
             // "osx" should not match "os" with word boundaries
             assert.ok(!isNameUsedOutsideLines(doc as any, text, 'os', excludeLines));
         });
+
+        it('does not match dot-qualified references (module.Symbol)', () => {
+            const doc = createMockDocument('from pydantic import BaseModel\n\nprint(pydantic.BaseModel)');
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            // "BaseModel" in "pydantic.BaseModel" is a qualified access,
+            // not a bare usage of the imported name.
+            assert.ok(!isNameUsedOutsideLines(doc as any, text, 'BaseModel', excludeLines));
+        });
+
+        it('matches bare usage even when qualified usage also exists', () => {
+            const doc = createMockDocument('from pydantic import BaseModel\n\nx = BaseModel()\ny = pydantic.BaseModel()');
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            // Bare "BaseModel()" IS a real usage
+            assert.ok(isNameUsedOutsideLines(doc as any, text, 'BaseModel', excludeLines));
+        });
+
+        it('does not match names inside a multi-line docstring', () => {
+            const doc = createMockDocument([
+                'import os',
+                '"""',
+                'os is used here in the docstring',
+                '"""',
+                'x = 1',
+            ].join('\n'));
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            // "os" in the docstring should not count as usage
+            assert.ok(!isNameUsedOutsideLines(doc as any, text, 'os', excludeLines));
+        });
     });
 });
 

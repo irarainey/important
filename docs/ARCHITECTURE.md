@@ -30,7 +30,7 @@ src/
     ├── module-symbols.ts           # Known symbols for wildcard fixing
     ├── pyproject-reader.ts         # Reads first-party config & line-length from pyproject.toml
     ├── standard-aliases.ts         # Well-known import alias mappings (e.g. np, pd, dt)
-    └── text-utils.ts               # Regex escaping, string/comment detection
+    └── text-utils.ts               # Regex escaping, string/comment/docstring detection
 ```
 
 ## Data Flow
@@ -280,19 +280,23 @@ The parser:
 5. Collects multi-line imports by tracking parentheses (inline comments are stripped from each continuation line)
 6. Records `endLine` for multi-line imports (used for correct range spanning and skip logic)
 7. Scans the **entire file** — the top-level import block is determined by the 2-consecutive-non-import-line heuristic (blank lines, comments, docstrings, `__all__`, and `if TYPE_CHECKING` guards are permitted), but imports found after the block closes are still parsed and marked with `misplaced: true`
-8. Detects `if TYPE_CHECKING:` blocks by indentation: when the parser encounters this guard line it marks all subsequent imports at deeper indentation as `typeCheckingOnly: true` until the block ends (a non-blank line at the same or lesser indentation)
-9. Misplaced imports are flagged by the validator (Rule 10) and relocated to the top by the sorter; `typeCheckingOnly` imports are exempt from relocation but are sorted in-place within their block
+8. **Skips multi-line strings** — pre-computes which lines are inside triple-quoted strings (via `getMultilineStringLines()`) and skips them entirely, preventing import-like text in docstrings or block strings from being parsed as real imports
+9. Detects `if TYPE_CHECKING:` blocks by indentation: when the parser encounters this guard line it marks all subsequent imports at deeper indentation as `typeCheckingOnly: true` until the block ends (a non-blank line at the same or lesser indentation)
+10. Misplaced imports are flagged by the validator (Rule 10) and relocated to the top by the sorter; `typeCheckingOnly` imports are exempt from relocation but are sorted in-place within their block
 
 ### Symbol Usage Detection (`text-utils.ts`)
 
 The shared `isNameUsedOutsideLines()` function determines if an imported name is referenced anywhere in the document outside the import block:
 
 1. Create regex pattern: `\b{name}\b` (word boundary match)
-2. Search entire document text
-3. For each match:
+2. Pre-compute multi-line string lines via `getMultilineStringLines()` (or accept a pre-computed set)
+3. Search entire document text
+4. For each match:
     - Skip if on an excluded line (the **entire** import block's line range, via `ReadonlySet<number>` — ensuring a name appearing only in another import statement is not treated as "used")
+    - Skip if inside a multi-line string (docstring) — lines identified by `getMultilineStringLines()`
+    - Skip if preceded by a `.` character — the name is part of a qualified reference (e.g. `module.Symbol`) and the bare import is not what provides it
     - Skip if in a string or comment (via `isInStringOrComment` — handles `#` comments, single/double/triple quotes, and f-string expressions)
-4. Return true if any valid usage found
+5. Return true if any valid usage found
 
 The `importLines` set in `ValidationResult` is computed once and shared across all consumers, guaranteeing consistent unused-import detection.
 
@@ -308,6 +312,7 @@ For `from os.path import *`:
 Symbol detection skips:
 
 - All import lines in the document (via the shared `importLines` set from `ValidationResult`), not just the current import's lines
+- Lines inside multi-line strings / docstrings (via `getMultilineStringLines()`)
 - Strings and comments (using `isInStringOrComment`)
 - Already-qualified names (preceded by `.`)
 
@@ -341,7 +346,7 @@ The fix command (`fixAllImports`) guards the entire pipeline with an early exit:
 3. **Filter**: Remove imports where all names are unused (uses pre-computed `unusedNames` map; preserves `__future__` directives). When a name has an `as` alias, the alias is checked for usage instead of the original name.
 4. **Deduplicate**: Merge `from X import a` and `from X import b` (aliases are preserved during merging)
 5. **Categorize**: Use pre-computed `categories` map (future / stdlib / third-party / first-party / local)
-6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case) — matching Ruff/isort default behaviour
+6. **Sort**: `import` statements before `from` statements, then alphabetically by module name within each sub-group (ignoring case) — matching Ruff/isort default behaviour. Names within each `from` import are also sorted alphabetically (e.g. `from X import a, b, c`).
 7. **Format**: Join with blank lines between categories, reconstructing `as` clauses where present. For `from` imports, if the single-line form exceeds the configured line length it is wrapped into Ruff-style parenthesised multi-line format with 4-space indentation and trailing commas.
 8. **Relocate**: If misplaced imports exist, delete them from their scattered positions (bottom-up to preserve line numbers) and merge into the top block
 9. **TYPE_CHECKING block**: `typeCheckingOnly` imports are sorted separately using the same normalise → deduplicate → group → sort → format pipeline but with the block's indentation preserved. Blank lines between categories and multi-line wrapping (adjusted for indent) are applied. The sorted text replaces only the import lines within the block — the `if TYPE_CHECKING:` guard line is untouched. When the TC block is **embedded** between regular imports (regular imports exist both above and below), the sorter detects this layout, locates the `if TYPE_CHECKING:` header, and builds a single combined replacement covering the regular imports and the TC block — preventing overlapping edits that would destroy the block.
@@ -349,12 +354,19 @@ The fix command (`fixAllImports`) guards the entire pipeline with an early exit:
 
 ### String/Comment Detection (`text-utils.ts`)
 
-The `isInStringOrComment` function handles:
+The `isInStringOrComment` function handles single-line string/comment detection:
 
 - `#` comments (but not `#` inside strings)
 - Single and double quotes
 - Triple quotes
 - F-strings (code inside `{}` is NOT in a string)
+
+The `getMultilineStringLines` function handles multi-line string detection:
+
+- Pre-computes which lines are inside triple-quoted (`"""` or `'''`) multi-line strings
+- Lines containing only the opening or closing delimiter are included; single-line triple-quoted strings (opened and closed on the same line) are excluded
+- Returns a `ReadonlySet<number>` of interior line numbers
+- Used by the import parser (to skip docstring content), the validator (to avoid false positives from names in docstrings), and the fixer (to prevent symbol rewrites inside docstrings)
 
 ## Extension Lifecycle
 
@@ -451,7 +463,7 @@ To support wildcard fixing for a new module:
 
 ### Unit Tests
 
-The extension includes a comprehensive unit test suite (142 tests across 7 files) that runs outside the VS Code extension host.
+The extension includes a comprehensive unit test suite (150 tests across 7 files) that runs outside the VS Code extension host.
 
 ```bash
 npm run test
@@ -467,15 +479,15 @@ npm run test
 
 **Test coverage:**
 
-| Test File                  | Module Tested                                                          | Tests |
-| -------------------------- | ---------------------------------------------------------------------- | ----- |
-| `import-parser.test.ts`    | Import parsing (single/multi-line, TYPE_CHECKING, misplaced)           | 25    |
-| `import-validator.test.ts` | All 10 validation rules, categories, severity, unused names            | 45    |
-| `module-resolver.test.ts`  | `isWorkspaceModule`, `isModuleFile`, `isLocalModule`, first-party      | 15    |
-| `sort-imports.test.ts`     | Grouping, sorting, dedup, unused removal, TC blocks, wrapping          | 14    |
-| `diagnostics.test.ts`      | `issuesToDiagnostics`, validation cache lifecycle                      | 11    |
-| `utils.test.ts`            | `escapeRegex`, `isInStringOrComment`, `isNameUsedOutsideLines`, stdlib | 28    |
-| `types.test.ts`            | `CATEGORY_ORDER` structure and ordering                                | 4     |
+| Test File                  | Module Tested                                                                              | Tests |
+| -------------------------- | ------------------------------------------------------------------------------------------ | ----- |
+| `import-parser.test.ts`    | Import parsing (single/multi-line, TYPE_CHECKING, misplaced, docstrings)                   | 28    |
+| `import-validator.test.ts` | All 10 validation rules, categories, severity, unused names                                | 51    |
+| `module-resolver.test.ts`  | `isWorkspaceModule`, `isModuleFile`, `isLocalModule`, first-party                          | 16    |
+| `sort-imports.test.ts`     | Grouping, sorting, dedup, unused removal, TC blocks, wrapping, name sorting                | 17    |
+| `diagnostics.test.ts`      | `issuesToDiagnostics`, validation cache lifecycle                                          | 7     |
+| `utils.test.ts`            | `escapeRegex`, `isInStringOrComment`, `isNameUsedOutsideLines`, docstring skipping, stdlib | 27    |
+| `types.test.ts`            | `CATEGORY_ORDER` structure and ordering                                                    | 4     |
 
 ## Build Commands
 
@@ -483,7 +495,7 @@ npm run test
 | ----------------- | --------------------------------- |
 | `npm run compile` | Build with source maps            |
 | `npm run watch`   | Build and watch for changes       |
-| `npm run test`    | Run unit tests (Mocha, 142 tests) |
+| `npm run test`    | Run unit tests (Mocha, 150 tests) |
 | `npm run lint`    | Run ESLint                        |
 | `npm run package` | Create .vsix package              |
 

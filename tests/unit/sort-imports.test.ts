@@ -378,4 +378,45 @@ describe('sort-imports', () => {
             assert.ok(sorted!.includes('import pandas as pd'));
         });
     });
+
+    // ------------------------------------------------------------------
+    // Alphabetical sorting of names within from-imports
+    // ------------------------------------------------------------------
+    describe('intra-import name sorting', () => {
+        it('sorts names alphabetically within a from-import', async () => {
+            const sorted = await sortAndGetText([
+                'from os.path import join, exists, abspath',
+                '',
+                'print(join("a"), exists("b"), abspath("c"))',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            // Names should appear in alphabetical order: abspath, exists, join
+            const importLine = sorted!.split('\n').find(l => l.startsWith('from os.path'))!;
+            assert.ok(importLine);
+            const absIdx = importLine.indexOf('abspath');
+            const exIdx = importLine.indexOf('exists');
+            const joinIdx = importLine.indexOf('join');
+            assert.ok(absIdx < exIdx, `abspath (${absIdx}) should come before exists (${exIdx})`);
+            assert.ok(exIdx < joinIdx, `exists (${exIdx}) should come before join (${joinIdx})`);
+        });
+
+        it('sorts merged from-import names alphabetically', async () => {
+            const sorted = await sortAndGetText([
+                'from os.path import join',
+                'from os.path import exists',
+                'from os.path import abspath',
+                '',
+                'print(join("a"), exists("b"), abspath("c"))',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            const importLine = sorted!.split('\n').find(l => l.startsWith('from os.path'))!;
+            const absIdx = importLine.indexOf('abspath');
+            const exIdx = importLine.indexOf('exists');
+            const joinIdx = importLine.indexOf('join');
+            assert.ok(absIdx < exIdx, 'abspath should come before exists');
+            assert.ok(exIdx < joinIdx, 'exists should come before join');
+        });
+    });
 });

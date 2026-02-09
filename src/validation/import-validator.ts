@@ -3,7 +3,7 @@ import type { ImportStatement, ImportIssue, ImportCategory, ValidationResult } f
 import { CATEGORY_ORDER } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
 import { STANDARD_IMPORT_ALIASES } from '../utils/standard-aliases';
-import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines } from '../utils/text-utils';
+import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines, getMultilineStringLines } from '../utils/text-utils';
 import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
@@ -73,11 +73,12 @@ function findUnusedNames(
     documentText: string,
     imp: ImportStatement,
     allImportLines: ReadonlySet<number>,
+    multilineStringLines: ReadonlySet<number>,
 ): string[] {
     return imp.names.filter(name => {
         if (name === '*') return false;
         const usageName = imp.aliases.get(name) ?? name;
-        return !isNameUsedOutsideLines(document, documentText, usageName, allImportLines);
+        return !isNameUsedOutsideLines(document, documentText, usageName, allImportLines, multilineStringLines);
     });
 }
 
@@ -111,6 +112,10 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         categories.set(imp, getImportCategory(imp, document.uri));
     }
 
+    // Pre-compute lines inside multi-line strings (docstrings) so that
+    // import-like text and name occurrences inside them are ignored.
+    const multilineStringLines = getMultilineStringLines(document);
+
     // Pre-compute unused names for every import — reused in Rule 7 and
     // by the sorter (which filters unused names when rebuilding the
     // import block).  Using `importLines` (all import lines) ensures
@@ -121,7 +126,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
             // __future__ directives and wildcard imports are never flagged as unused.
             unusedNamesMap.set(imp, []);
         } else {
-            unusedNamesMap.set(imp, findUnusedNames(document, documentText, imp, importLines));
+            unusedNamesMap.set(imp, findUnusedNames(document, documentText, imp, importLines, multilineStringLines));
         }
     }
 
@@ -223,6 +228,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                     while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
                         const pos = document.positionAt(dotMatch.index);
                         if (pos.line >= imp.line && pos.line <= imp.endLine) continue;
+                        if (multilineStringLines.has(pos.line)) continue;
                         const lineText = document.lineAt(pos.line).text;
                         const beforeText = lineText.substring(0, pos.character);
                         if (isInStringOrComment(beforeText)) continue;

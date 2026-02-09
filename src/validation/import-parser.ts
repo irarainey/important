@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import type { ImportStatement } from '../types';
+import { getMultilineStringLines } from '../utils/text-utils';
 
 /**
  * Strips an inline `#` comment from a fragment of an import statement.
@@ -177,9 +178,19 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
     let inTypeCheckingBlock = false;
     let typeCheckingIndent = 0;
 
+    // Pre-compute lines inside multi-line strings (docstrings) so
+    // import-like text inside them is never treated as real code.
+    const multilineStringLines = getMultilineStringLines(document);
+
     while (i < document.lineCount) {
         const line = document.lineAt(i).text;
         const trimmed = line.trim();
+
+        // Skip lines inside multi-line strings (docstrings)
+        if (multilineStringLines.has(i)) {
+            i++;
+            continue;
+        }
 
         // Detect entry into an `if TYPE_CHECKING:` block
         if (trimmed.startsWith('if TYPE_CHECKING') && trimmed.endsWith(':')) {

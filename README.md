@@ -90,7 +90,7 @@ Also available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-cli
 Or via command line:
 
 ```bash
-code --install-extension important-python-0.3.2.vsix
+code --install-extension important-python-0.3.3.vsix
 ```
 
 ## Configuration
@@ -309,7 +309,7 @@ important/
 │       ├── pyproject-reader.ts 		# Reads first-party config & line-length from pyproject.toml
 │       ├── standard-aliases.ts 		# Well-known import alias mappings
 │       ├── stdlib-modules.ts   		# Python standard library module list
-│       └── text-utils.ts      			# Text/regex utilities
+│       └── text-utils.ts      			# Text/regex utilities, docstring detection
 ├── tests/
 │   ├── application/                    # Sample Python project for manual testing
 │   │   ├── other_library/              # First-party package (with nested modules)
@@ -366,6 +366,7 @@ The sample project includes intentional import violations for testing:
 | `src/alias_examples.py`                 | Standard vs non-standard aliases, from-alias, typing exemptions    |
 | `src/embedded_type_checking_example.py` | Embedded TC block between imports, symbol, misplaced               |
 | `src/multiline_wrapping_example.py`     | Line-length wrapping, merged typing, TC wrapping                   |
+| `src/symbol_consolidation_example.py`   | Symbol-to-module consolidation, name sorting, docstring resilience |
 | `src/utils/utils.py`                    | Relative import, symbol import, wrong alphabetical order           |
 | `src/helpers/helpers.py`                | Multiple imports on one line, unused import                        |
 | `src/models/sample_models.py`           | ✅ Clean - no issues (for comparison)                              |
@@ -375,7 +376,7 @@ The sample project includes intentional import violations for testing:
 
 ### Unit Tests
 
-The extension includes a comprehensive unit test suite (142 tests) covering all core modules. Tests run outside the VS Code extension host using a custom `vscode` module mock.
+The extension includes a comprehensive unit test suite (150 tests) covering all core modules. Tests run outside the VS Code extension host using a custom `vscode` module mock.
 
 ```bash
 npm run test
@@ -390,12 +391,12 @@ The test infrastructure uses:
 
 | Test File                  | Module Tested     | Tests |
 | -------------------------- | ----------------- | ----- |
-| `import-parser.test.ts`    | Import parsing    | 25    |
-| `import-validator.test.ts` | Validation rules  | 45    |
-| `module-resolver.test.ts`  | Module resolution | 15    |
-| `sort-imports.test.ts`     | Import sorting    | 14    |
-| `diagnostics.test.ts`      | Diagnostics       | 11    |
-| `utils.test.ts`            | Text & stdlib     | 28    |
+| `import-parser.test.ts`    | Import parsing    | 28    |
+| `import-validator.test.ts` | Validation rules  | 51    |
+| `module-resolver.test.ts`  | Module resolution | 16    |
+| `sort-imports.test.ts`     | Import sorting    | 17    |
+| `diagnostics.test.ts`      | Diagnostics       | 7     |
+| `utils.test.ts`            | Text & stdlib     | 27    |
 | `types.test.ts`            | Type definitions  | 4     |
 
 ### Available Scripts
@@ -404,7 +405,7 @@ The test infrastructure uses:
 | ----------------- | --------------------------------- |
 | `npm run compile` | Build with source maps            |
 | `npm run watch`   | Build and watch for changes       |
-| `npm run test`    | Run unit tests (Mocha, 142 tests) |
+| `npm run test`    | Run unit tests (Mocha, 150 tests) |
 | `npm run lint`    | Run ESLint                        |
 | `npm run package` | Create .vsix package              |
 
