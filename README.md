@@ -24,7 +24,7 @@ A Visual Studio Code extension that validates and formats Python import statemen
 | One import per line          | `import os, sys` → separate statements (preserving aliases)  | ✅       |
 | Import modules not symbols   | `from fastmcp import Cls` → `import fastmcp` + `fastmcp.Cls` | ✅       |
 | Standard import aliases only | `import y as z` only for standard abbreviations (e.g. `np`)  | ✅       |
-| Justified from-aliases only  | `from x import y as z` only when a naming conflict exists    | —        |
+| Justified from-aliases only  | `from x import y as z` only when a naming conflict exists    | ✅       |
 | Unused imports               | Imports not referenced in code are removed                   | ✅       |
 | Duplicate imports            | Multiple identical imports are merged                        | ✅       |
 | Correct ordering             | `__future__` → stdlib → third-party → first-party → local    | ✅       |
@@ -90,7 +90,7 @@ Also available via Command Palette (`Ctrl+Shift+P` / `Cmd+Shift+P`) or right-cli
 Or via command line:
 
 ```bash
-code --install-extension important-python-0.3.3.vsix
+code --install-extension important-python-0.4.0.vsix
 ```
 
 ## Configuration

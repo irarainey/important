@@ -101,9 +101,15 @@ automatically re-scans.
       │      e.g. `operating_system.name` → `os.name`
       │    - Document version changes → cache invalidated
       │
+      ├──► Step 3: Fix unnecessary from-import aliases
+      │    - Remove unjustified `as` clauses from `from X import y as z`
+      │    - Replace all references: old alias → original name
+      │      e.g. `placeholders_lib.xxx` → `placeholders.xxx`
+      │    - Document version changes → cache invalidated
+      │
       ├──► getValidation(freshDoc)  ◄── re-scans after prior edits
       │
-      ├──► Step 3: Fix import-modules-not-symbols
+      ├──► Step 4: Fix import-modules-not-symbols
       │    - Detect symbol imports via three-tier approach:
       │      1. Definitive: module path is a .py file (isModuleFile)
       │      2. Sub-module: imported name is a .py file/package (isWorkspaceModule)
@@ -116,7 +122,7 @@ automatically re-scans.
       │      duplicate imports that the deduplicator would incorrectly merge
       │    - Document version changes → cache invalidated
       │
-      └──► Step 4: sortImportsInDocument(freshDoc, getValidation(freshDoc), lineLength)
+      └──► Step 5: sortImportsInDocument(freshDoc, getValidation(freshDoc), lineLength)
            - Receives pre-computed ValidationResult (no re-scan)
            - Expand multi-imports
            - Remove unused imports (from pre-computed unusedNames map)
@@ -234,7 +240,7 @@ First-party resolution (`isFirstPartyModule(moduleName, documentUri?)`):
 | `no-multiple-imports`        | No `import os, sys`                        | Warning  | Split to separate lines (preserving aliases) |
 | `import-modules-not-symbols` | Import modules, not symbols                | Info     | Refactor to module access                    |
 | `non-standard-import-alias`  | `import y as z` only for standard abbrevs  | Info     | Suggest standard alias or plain              |
-| `unnecessary-from-alias`     | `from x import y as z` only when justified | Info     | —                                            |
+| `unnecessary-from-alias`     | `from x import y as z` only when justified | Info     | Remove alias, rename refs                    |
 | `unused-import`              | Remove unused imports                      | Hint     | Delete or trim                               |
 | `wrong-import-order`         | stdlib → third-party → local               | Info     | Reorder                                      |
 | `wrong-alphabetical-order`   | Alphabetical within groups                 | Info     | Reorder                                      |
@@ -326,6 +332,16 @@ For `import os as operating_system` (no standard alias exists) or `import dateti
 4. Replace all references in code: `operating_system.xxx` → `os.xxx`, `date.xxx` → `dt.xxx`
 
 Reference replacement skips import lines, strings, comments, and already-qualified names — same rules as wildcard and symbol-import fixing.
+
+### Unnecessary From-Alias Fixing (`fix-imports.ts`)
+
+For `from X import placeholders as placeholders_lib` (unnecessary-from-alias):
+
+1. Group issues by import line (an import may have multiple flagged aliases)
+2. Rebuild the import statement without the flagged alias: `from X import placeholders as placeholders_lib` → `from X import placeholders`
+3. Replace all references in code: `placeholders_lib.xxx` → `placeholders.xxx`
+
+The sort step that follows will then merge the now-unaliased import with any existing non-aliased from-import for the same module.
 
 ### Symbol Import Fixing (`fix-imports.ts`)
 

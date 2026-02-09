@@ -139,7 +139,76 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
         }
     }
 
-    // Third: Apply symbol reference updates for import-modules-not-symbols
+    // Third: Fix unnecessary from-import aliases by removing the `as` clause
+    // and updating all references.  e.g. `from X import y as z` → `from X import y`
+    // with all `z.xxx` → `y.xxx` replacements.
+    const fromAliasIssues = issues.filter(i => i.code === 'unnecessary-from-alias');
+    if (fromAliasIssues.length > 0) {
+        const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
+        const freshResult = getValidation(freshDoc);
+        const currentFromAliasIssues = freshResult.issues.filter(i => i.code === 'unnecessary-from-alias');
+
+        const fromAliasTransformations: Array<{
+            oldAlias: string;
+            newName: string;
+        }> = [];
+
+        // Group issues by import line (an import may have multiple aliases flagged)
+        const issuesByLine = new Map<number, typeof currentFromAliasIssues>();
+        for (const issue of currentFromAliasIssues) {
+            const key = issue.import.line;
+            const group = issuesByLine.get(key) ?? [];
+            group.push(issue);
+            issuesByLine.set(key, group);
+        }
+
+        // Phase 1: Rebuild import statements without the flagged aliases
+        const fromAliasEdit = new vscode.WorkspaceEdit();
+        for (const [, lineIssues] of issuesByLine) {
+            const imp = lineIssues[0].import;
+
+            // Collect the original names whose aliases are flagged
+            const flaggedNames = new Set<string>();
+            for (const issue of lineIssues) {
+                for (const [original, alias] of issue.import.aliases) {
+                    if (issue.message.includes(`${original} as ${alias}`)) {
+                        flaggedNames.add(original);
+                        fromAliasTransformations.push({ oldAlias: alias, newName: original });
+                    }
+                }
+            }
+
+            // Rebuild the import: strip alias from flagged names, keep others
+            const nameFragments = imp.names.map(n => {
+                const alias = imp.aliases.get(n);
+                if (alias && flaggedNames.has(n)) {
+                    return n; // Drop the alias
+                }
+                return alias ? `${n} as ${alias}` : n;
+            });
+            const newImport = `from ${imp.module} import ${nameFragments.join(', ')}`;
+            fromAliasEdit.replace(freshDoc.uri, lineIssues[0].range, newImport);
+        }
+
+        if (fromAliasTransformations.length > 0) {
+            await vscode.workspace.applyEdit(fromAliasEdit);
+            madeChanges = true;
+
+            // Phase 2: Replace alias usages in code
+            const updatedDoc = await vscode.workspace.openTextDocument(editor.document.uri);
+            const updatedText = updatedDoc.getText();
+            const updatedResult = getValidation(updatedDoc);
+
+            const usageEdit = new vscode.WorkspaceEdit();
+            for (const { oldAlias, newName } of fromAliasTransformations) {
+                replaceSymbolUsagesOutsideImports(updatedDoc, usageEdit, updatedText, oldAlias, newName, updatedResult.importLines);
+            }
+
+            await vscode.workspace.applyEdit(usageEdit);
+        }
+    }
+
+    // Fourth: Apply symbol reference updates for import-modules-not-symbols
     // This must happen before we sort the imports.
     // Phase 1: Replace the import statements themselves
     // Phase 2: Replace symbol usages (after import edits are applied to avoid range conflicts)
@@ -221,7 +290,7 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
         await vscode.workspace.applyEdit(symbolEdit);
     }
 
-    // Fourth: Sort imports (also removes unused, expands multi-imports, fixes order)
+    // Fifth: Sort imports (also removes unused, expands multi-imports, fixes order)
     // Iterate until stable (max 5 iterations for safety)
     for (let i = 0; i < 5; i++) {
         // Get fresh document reference and its validation result

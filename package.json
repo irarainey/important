@@ -1,9 +1,9 @@
 {
   "name": "important-python",
   "displayName": "Important",
-  "description": "A Visual Studio Code extension to validate and format Python import statements according to the Google Python Style Guide.",
+  "description": "Validate and format Python import statements according to the Google Python Style Guide and PEP 8, with Ruff-compatible first-party module support",
   "icon": "resources/images/logo.png",
-  "version": "0.3.3",
+  "version": "0.4.0",
   "publisher": "irarainey",
   "author": {
     "name": "Ira Rainey",
