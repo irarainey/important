@@ -1,7 +1,7 @@
 import { strict as assert } from 'node:assert';
 import { describe, it } from 'mocha';
 import { createMockDocument } from './mocks/vscode';
-import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines } from '../../src/utils/text-utils';
+import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines, isNameAssignedInDocument } from '../../src/utils/text-utils';
 import { isStdlibModule } from '../../src/utils/stdlib-modules';
 import { STANDARD_IMPORT_ALIASES } from '../../src/utils/standard-aliases';
 
@@ -50,6 +50,29 @@ describe('text-utils', () => {
         it('returns false inside f-string expression {}', () => {
             // Inside an f-string's {} is code, not string
             assert.ok(!isInStringOrComment('x = f"value={'));
+        });
+
+        it('returns false inside f-string expression with nested quotes', () => {
+            // f"Valid types: {', '.join(" — the ', ' is inside {}, so we're in code
+            assert.ok(!isInStringOrComment(`f"Valid types: {', '.join(`));
+        });
+
+        it('returns true inside f-string text portion', () => {
+            // After closing } we're back in string text
+            assert.ok(isInStringOrComment('f"hello {x} world '));
+        });
+
+        it('returns true inside regular string with braces', () => {
+            // Not an f-string, braces don't create code context
+            assert.ok(isInStringOrComment('"value={'));
+        });
+
+        it('returns false for # inside a string', () => {
+            assert.ok(!isInStringOrComment('x = "abc#def" + '));
+        });
+
+        it('returns true for # after a closed string', () => {
+            assert.ok(isInStringOrComment('x = "done"  # '));
         });
     });
 
@@ -122,6 +145,94 @@ describe('text-utils', () => {
 
             // "os" in the docstring should not count as usage
             assert.ok(!isNameUsedOutsideLines(doc as any, text, 'os', excludeLines));
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // isNameAssignedInDocument
+    // ------------------------------------------------------------------
+    describe('isNameAssignedInDocument', () => {
+        it('detects simple assignment', () => {
+            const doc = createMockDocument('import foo\n\nfoo = bar()');
+            const text = doc.getText();
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+        });
+
+        it('detects type-annotated assignment', () => {
+            const doc = createMockDocument('import foo\n\nfoo: int = 42');
+            const text = doc.getText();
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+        });
+
+        it('detects augmented assignment', () => {
+            const doc = createMockDocument('import foo\n\nfoo += 1');
+            const text = doc.getText();
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+        });
+
+        it('detects for-loop variable', () => {
+            const doc = createMockDocument('import item\n\nfor item in items:\n    pass');
+            const text = doc.getText();
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'item', new Set([0]), new Set()));
+        });
+
+        it('detects as-target in with statement', () => {
+            const doc = createMockDocument('import ctx\n\nwith open("f") as ctx:\n    pass');
+            const text = doc.getText();
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'ctx', new Set([0]), new Set()));
+        });
+
+        it('does not match comparison (==)', () => {
+            const doc = createMockDocument('import foo\n\nif foo == 1:\n    pass');
+            const text = doc.getText();
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+        });
+
+        it('does not match attribute assignment (obj.name = ...)', () => {
+            const doc = createMockDocument('import foo\n\nself.foo = 1');
+            const text = doc.getText();
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+        });
+
+        it('does not match names on import lines', () => {
+            const doc = createMockDocument('import foo\n\nx = 1');
+            const text = doc.getText();
+            // 'foo' only appears on the import line (line 0)
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+        });
+
+        it('does not match names inside strings', () => {
+            const doc = createMockDocument('import foo\n\nx = "foo = 1"');
+            const text = doc.getText();
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+        });
+
+        it('does not match names inside comments', () => {
+            const doc = createMockDocument('import foo\n\n# foo = 1\nx = 1');
+            const text = doc.getText();
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+        });
+
+        it('does not match names inside multi-line strings', () => {
+            const doc = createMockDocument([
+                'import foo',
+                '"""',
+                'foo = something',
+                '"""',
+                'x = 1',
+            ].join('\n'));
+            const text = doc.getText();
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set([2])));
+        });
+
+        it('detects real-world consent_detection conflict', () => {
+            const doc = createMockDocument([
+                'from src.services.consent_detection import detect_cookie_consent',
+                '',
+                'consent_detection = await detect_cookie_consent(screenshot, html)',
+            ].join('\n'));
+            const text = doc.getText();
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'consent_detection', new Set([0]), new Set()));
         });
     });
 });

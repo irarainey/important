@@ -3,8 +3,8 @@ import type { ImportStatement, ImportIssue, ImportCategory, ValidationResult } f
 import { CATEGORY_ORDER } from '../types';
 import { isStdlibModule } from '../utils/stdlib-modules';
 import { STANDARD_IMPORT_ALIASES } from '../utils/standard-aliases';
-import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines, getMultilineStringLines } from '../utils/text-utils';
-import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule } from '../utils/module-resolver';
+import { escapeRegex, isInStringOrComment, isNameUsedOutsideLines, getMultilineStringLines, isNameAssignedInDocument } from '../utils/text-utils';
+import { isWorkspaceModule, isModuleFile, isLocalModule, isFirstPartyModule, resolveRelativeImport } from '../utils/module-resolver';
 import { parseImports } from './import-parser';
 
 /**
@@ -145,13 +145,27 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
     for (const imp of imports) {
         // Rule 1: No relative imports
         if (imp.level > 0) {
+            // Try to resolve the relative import to an absolute module
+            // path for a more accurate suggested fix.
+            const absoluteModule = resolveRelativeImport(document.uri, imp.level, imp.module);
+            const fallbackFix = imp.text.replace(/^from\s+\.+/, 'from ');
+
+            const suggestedFix = absoluteModule
+                ? (imp.type === 'from' && imp.names.length > 0
+                    ? `from ${absoluteModule} import ${imp.names.map(n => {
+                        const alias = imp.aliases.get(n);
+                        return alias ? `${n} as ${alias}` : n;
+                    }).join(', ')}`
+                    : `import ${absoluteModule}`)
+                : fallbackFix;
+
             issues.push({
                 code: 'no-relative-imports',
                 message: 'Relative imports are not allowed (Google Python Style Guide). Use absolute imports instead.',
                 severity: vscode.DiagnosticSeverity.Warning,
                 range: importRange(document, imp),
                 import: imp,
-                suggestedFix: imp.text.replace(/^from\s+\.+/, 'from '),
+                suggestedFix,
             });
         }
 
@@ -209,7 +223,12 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
             //     for the imported name itself.
             //  2. Usage pattern: the name is used with dot access (name.attr),
             //     which strongly indicates module-like usage.  Only applies
-            //     to snake_case names (Python module convention).
+            //     to snake_case names for local modules (Python module convention).
+            //     For third-party packages (where we can't verify via
+            //     the filesystem), dot access is checked for all names
+            //     regardless of case, since PascalCase sub-modules like
+            //     `PIL.Image` are common in third-party packages.
+            const isThirdParty = !isLocalModule(imp.module);
             const isModuleImport = !confirmedSymbolImport && imp.names.some(name => {
                 // Filesystem check: does a .py file or package exist?
                 if (isWorkspaceModule(imp.module, name)) {
@@ -217,10 +236,13 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                 }
 
                 // Dot-access check: is the name used with dot access?
-                // Only applies to snake_case names (Python module convention).
-                // PascalCase names are almost certainly classes/types whose
-                // dot access (e.g. Config.from_dict()) should not suppress
-                // the violation.
+                // For local (workspace) modules, only applies to snake_case
+                // names — PascalCase names are almost certainly classes/types
+                // whose dot access (e.g. Config.from_dict()) should not
+                // suppress the violation.  For third-party packages, we
+                // can't verify the module structure, so dot access is
+                // checked for all names regardless of case (e.g.
+                // PIL.Image.open() where Image is a sub-module).
                 // When the name has an alias (e.g. `import Y as Z`), check
                 // the alias for dot-access too — code uses the alias, not
                 // the original name.
@@ -228,7 +250,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                 const namesToCheck = alias ? [name, alias] : [name];
                 for (const checkName of namesToCheck) {
                     const isPascalCase = /^[A-Z]/.test(checkName);
-                    if (!isPascalCase) {
+                    if (isThirdParty || !isPascalCase) {
                         const dotAccessPattern = new RegExp(`\\b${escapeRegex(checkName)}\\.\\w`, 'g');
                         let dotMatch;
                         while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
@@ -279,6 +301,19 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
             for (const [original, alias] of imp.aliases) {
                 const standardAlias = STANDARD_IMPORT_ALIASES.get(original);
                 if (standardAlias !== alias) {
+                    // Allow if the original name is used as a local variable
+                    // (assignment target, loop variable, etc.) — the alias
+                    // exists to avoid shadowing the module import.
+                    if (isNameAssignedInDocument(document, documentText, original, importLines, multilineStringLines)) {
+                        issues.push({
+                            code: 'local-name-conflict-alias',
+                            message: `'import ${original} as ${alias}' — aliased because '${original}' is used as a local variable.`,
+                            severity: vscode.DiagnosticSeverity.Hint,
+                            range: importRange(document, imp),
+                            import: imp,
+                        });
+                        continue;
+                    }
                     const hint = standardAlias
                         ? `The standard alias for '${original}' is '${standardAlias}'.`
                         : `No standard abbreviation is known for '${original}'.`;
@@ -311,6 +346,19 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                 // This import contributes `alias` (not `original`) to the
                 // namespace, so any presence indicates a genuine conflict.
                 if (allEffectiveNames.has(original)) {
+                    continue;
+                }
+                // Allow if `original` is used as a local variable
+                // (assignment target, loop variable, etc.) — the alias
+                // exists to avoid shadowing the module import.
+                if (isNameAssignedInDocument(document, documentText, original, importLines, multilineStringLines)) {
+                    issues.push({
+                        code: 'local-name-conflict-alias',
+                        message: `'from ${imp.module} import ${original} as ${alias}' — aliased because '${original}' is used as a local variable.`,
+                        severity: vscode.DiagnosticSeverity.Hint,
+                        range: importRange(document, imp),
+                        import: imp,
+                    });
                     continue;
                 }
                 issues.push({

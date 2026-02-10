@@ -250,6 +250,85 @@ export function isFirstPartyModule(moduleName: string, documentUri?: vscode.Uri)
 export const WORKSPACE_EXCLUDE_PATTERN = '{**/node_modules/**,**/.venv/**,**/venv/**,**/.env/**,**/env/**,**/__pypackages__/**,**/.tox/**,**/.nox/**,**/.pyenv/**,**/site-packages/**}';
 
 /**
+ * Resolves a relative import to an absolute module path by using the
+ * document's location and the workspace module cache.
+ *
+ * For example, given a file at `src/utils/retry.py` with
+ * `from .logger import create_logger` (level=1, module="logger"),
+ * this returns `"src.utils.logger"` when `src/utils/logger.py` exists
+ * in the workspace.
+ *
+ * The algorithm:
+ *  1. Compute the file's package path by walking up from the file's
+ *     directory and collecting directory names that contain `__init__.py`.
+ *  2. Go up `level` packages to find the base package.
+ *  3. Append the relative module name.
+ *  4. Verify the resulting path exists in the module cache.
+ *
+ * @returns The absolute dotted module path, or `undefined` if it cannot
+ *          be resolved (e.g. no `__init__.py` chain, or the target module
+ *          is not in the workspace cache).
+ */
+export function resolveRelativeImport(
+    documentUri: vscode.Uri,
+    level: number,
+    moduleName: string,
+): string | undefined {
+    if (!initialized) {
+        return undefined;
+    }
+
+    // Strip leading dots from the module name — the `level` parameter
+    // already encodes the relative depth, so dots in the name are redundant.
+    const cleanModule = moduleName.replace(/^\.+/, '');
+
+    const docRelative = vscode.workspace.asRelativePath(documentUri, false);
+    const parts = docRelative.replace(/\\/g, '/').split('/');
+
+    // Remove the filename to get the directory segments
+    parts.pop();
+
+    // Go up `level` directories (level=1 means current package, level=2 parent, etc.)
+    // level=1 refers to the current directory, so we go up (level - 1) extra levels
+    for (let i = 1; i < level; i++) {
+        if (parts.length === 0) {
+            return undefined; // Can't go above workspace root
+        }
+        parts.pop();
+    }
+
+    // Build the candidate module path
+    const basePath = parts.join('/');
+    const modulePath = cleanModule
+        ? (basePath ? `${basePath}/${cleanModule.replace(/\./g, '/')}` : cleanModule.replace(/\./g, '/'))
+        : basePath;
+
+    if (!modulePath) {
+        return undefined;
+    }
+
+    // Check if the module exists in the cache (as a .py file or package)
+    if (knownModulePaths.has(modulePath) || knownModulePaths.has(`${modulePath}/__init__`)) {
+        // Walk up from the module path to find the package root — the
+        // deepest ancestor that does NOT have an `__init__.py`.
+        const resolvedParts = modulePath.split('/');
+        let packageRoot = 0;
+        for (let i = 0; i < resolvedParts.length - 1; i++) {
+            const prefix = resolvedParts.slice(0, i + 1).join('/');
+            if (!knownModulePaths.has(`${prefix}/__init__`)) {
+                packageRoot = i + 1;
+            }
+        }
+        if (packageRoot >= resolvedParts.length) {
+            return undefined;
+        }
+        return resolvedParts.slice(packageRoot).join('.');
+    }
+
+    return undefined;
+}
+
+/**
  * Rebuilds the module-path cache and derived indices from all `.py`
  * files in the workspace.
  */

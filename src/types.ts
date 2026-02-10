@@ -54,6 +54,7 @@ export type ImportIssueCode =
     | 'import-modules-not-symbols'
     | 'non-standard-import-alias'
     | 'unnecessary-from-alias'
+    | 'local-name-conflict-alias'
     | 'unused-import'
     | 'wrong-import-order'
     | 'wrong-alphabetical-order'

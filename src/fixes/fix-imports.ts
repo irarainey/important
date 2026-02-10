@@ -1,9 +1,9 @@
 import * as vscode from 'vscode';
 import { getValidation } from '../validation/validation-cache';
-import { isInStringOrComment, escapeRegex, getMultilineStringLines } from '../utils/text-utils';
+import { isInStringOrComment, escapeRegex, getMultilineStringLines, isNameAssignedInDocument } from '../utils/text-utils';
 import { getModuleSymbols, hasModuleSymbols } from '../utils/module-symbols';
 import { sortImportsInDocument } from './sort-imports';
-import { ensureModuleResolverReady } from '../utils/module-resolver';
+import { ensureModuleResolverReady, resolveRelativeImport } from '../utils/module-resolver';
 import { log } from '../utils/logger';
 
 /**
@@ -59,7 +59,42 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
         madeChanges = true;
     }
 
-    // Second: Fix non-standard import aliases by replacing with the standard
+    // Second: Fix relative imports by converting to absolute imports
+    const relativeIssues = issues.filter(i => i.code === 'no-relative-imports');
+    if (relativeIssues.length > 0) {
+        const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
+        const freshResult = getValidation(freshDoc);
+        const currentRelativeIssues = freshResult.issues.filter(i => i.code === 'no-relative-imports');
+
+        const relativeEdit = new vscode.WorkspaceEdit();
+        for (const issue of currentRelativeIssues) {
+            const imp = issue.import;
+
+            // Resolve the relative import to an absolute module path
+            // using the workspace module cache and the document's location.
+            const absoluteModule = resolveRelativeImport(freshDoc.uri, imp.level, imp.module);
+            if (absoluteModule) {
+                // Rebuild the import statement with the resolved absolute path
+                const namesPart = imp.names.length > 0 ? imp.names.map(n => {
+                    const alias = imp.aliases.get(n);
+                    return alias ? `${n} as ${alias}` : n;
+                }).join(', ') : '';
+
+                const newImport = imp.type === 'from' && namesPart
+                    ? `from ${absoluteModule} import ${namesPart}`
+                    : `import ${absoluteModule}`;
+                relativeEdit.replace(freshDoc.uri, issue.range, newImport);
+            } else if (issue.suggestedFix) {
+                // Fallback: strip dots (best-effort when resolver can't find the path)
+                relativeEdit.replace(freshDoc.uri, issue.range, issue.suggestedFix);
+            }
+        }
+
+        await vscode.workspace.applyEdit(relativeEdit);
+        madeChanges = true;
+    }
+
+    // Fourth: Fix non-standard import aliases by replacing with the standard
     // alias (or removing the alias entirely) and updating all references.
     const aliasIssues = issues.filter(i => i.code === 'non-standard-import-alias');
     if (aliasIssues.length > 0) {
@@ -139,7 +174,7 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
         }
     }
 
-    // Third: Fix unnecessary from-import aliases by removing the `as` clause
+    // Fifth: Fix unnecessary from-import aliases by removing the `as` clause
     // and updating all references.  e.g. `from X import y as z` → `from X import y`
     // with all `z.xxx` → `y.xxx` replacements.
     const fromAliasIssues = issues.filter(i => i.code === 'unnecessary-from-alias');
@@ -233,89 +268,115 @@ export async function fixAllImports(editor: vscode.TextEditor, lineLength: numbe
         }
     }
 
-    // Fourth: Apply symbol reference updates for import-modules-not-symbols
+    // Sixth: Apply symbol reference updates for import-modules-not-symbols
     // This must happen before we sort the imports.
     // Phase 1: Replace the import statements themselves
     // Phase 2: Replace symbol usages (after import edits are applied to avoid range conflicts)
-    const symbolIssues = issues.filter(i => i.code === 'import-modules-not-symbols');
-    if (symbolIssues.length > 0) {
+    // Always re-validate here — earlier fixes (e.g. relative → absolute) can
+    // introduce new symbol-import violations that were not in the original issues.
+    {
         const freshDoc = await vscode.workspace.openTextDocument(editor.document.uri);
         const freshResult = getValidation(freshDoc);
         const currentSymbolIssues = freshResult.issues.filter(i => i.code === 'import-modules-not-symbols');
 
-        // Collect transformation info before modifying the document
-        const transformations: Array<{
-            moduleName: string;
-            symbols: readonly string[];
-            aliases: ReadonlyMap<string, string>;
-        }> = [];
+        if (currentSymbolIssues.length > 0) {
+            const freshText = freshDoc.getText();
+            const freshMultilineLines = getMultilineStringLines(freshDoc);
 
-        // Build a map of modules already imported via `import X [as Y]`
-        // so we can reuse the existing reference name instead of creating
-        // a duplicate import that the deduplicator would incorrectly merge.
-        const existingModuleImports = new Map<string, string>();
-        for (const imp of freshResult.imports) {
-            if (imp.type === 'import') {
-                const usageName = imp.aliases.get(imp.module) ?? imp.module;
-                // Prefer non-aliased imports (module available by its own name)
-                if (!existingModuleImports.has(imp.module) || usageName === imp.module) {
-                    existingModuleImports.set(imp.module, usageName);
+            // Collect transformation info before modifying the document
+            const transformations: Array<{
+                moduleName: string;
+                symbols: readonly string[];
+                aliases: ReadonlyMap<string, string>;
+            }> = [];
+
+            // Build a map of modules already imported via `import X [as Y]`
+            // so we can reuse the existing reference name instead of creating
+            // a duplicate import that the deduplicator would incorrectly merge.
+            const existingModuleImports = new Map<string, string>();
+            for (const imp of freshResult.imports) {
+                if (imp.type === 'import') {
+                    const usageName = imp.aliases.get(imp.module) ?? imp.module;
+                    // Prefer non-aliased imports (module available by its own name)
+                    if (!existingModuleImports.has(imp.module) || usageName === imp.module) {
+                        existingModuleImports.set(imp.module, usageName);
+                    }
                 }
             }
-        }
 
-        // Phase 1: Replace import statements only
-        const importEdit = new vscode.WorkspaceEdit();
-        for (const issue of currentSymbolIssues) {
-            const moduleParts = issue.import.module.split('.');
-            const importedSymbols = issue.import.names;
+            // Phase 1: Replace import statements only
+            const importEdit = new vscode.WorkspaceEdit();
+            for (const issue of currentSymbolIssues) {
+                const moduleParts = issue.import.module.split('.');
+                const importedSymbols = issue.import.names;
 
-            if (moduleParts.length >= 2) {
-                // Deep import: from x.y import Symbol → from x import y
-                const moduleName = moduleParts[moduleParts.length - 1];
-                const parentPackage = moduleParts.slice(0, -1).join('.');
-                importEdit.replace(freshDoc.uri, issue.range, `from ${parentPackage} import ${moduleName}`);
-                transformations.push({ moduleName, symbols: importedSymbols, aliases: issue.import.aliases });
-            } else {
-                // Top-level module: from fastmcp import FastMCP → import fastmcp
-                const moduleName = issue.import.module;
-                const existingName = existingModuleImports.get(moduleName);
-                if (existingName) {
-                    // Module already imported (possibly aliased).  Don't add
-                    // a duplicate — the from-import will become unused after
-                    // Phase 2 rewrites references, and the sort step removes
-                    // it.  Use the existing name for qualified references.
-                    transformations.push({ moduleName: existingName, symbols: importedSymbols, aliases: issue.import.aliases });
+                if (moduleParts.length >= 2) {
+                    // Deep import: from x.y import Symbol → from x import y
+                    const moduleName = moduleParts[moduleParts.length - 1];
+                    const parentPackage = moduleParts.slice(0, -1).join('.');
+
+                    // Check if the module name conflicts with a local variable.
+                    // If so, alias the import to avoid shadowing.
+                    const hasConflict = isNameAssignedInDocument(
+                        freshDoc, freshText, moduleName, freshResult.importLines, freshMultilineLines,
+                    );
+                    const usageName = hasConflict ? `${moduleName}_mod` : moduleName;
+                    const importStatement = hasConflict
+                        ? `from ${parentPackage} import ${moduleName} as ${usageName}`
+                        : `from ${parentPackage} import ${moduleName}`;
+
+                    importEdit.replace(freshDoc.uri, issue.range, importStatement);
+                    transformations.push({ moduleName: usageName, symbols: importedSymbols, aliases: issue.import.aliases });
                 } else {
-                    importEdit.replace(freshDoc.uri, issue.range, `import ${moduleName}`);
-                    transformations.push({ moduleName, symbols: importedSymbols, aliases: issue.import.aliases });
+                    // Top-level module: from fastmcp import FastMCP → import fastmcp
+                    const moduleName = issue.import.module;
+                    const existingName = existingModuleImports.get(moduleName);
+                    if (existingName) {
+                        // Module already imported (possibly aliased).  Don't add
+                        // a duplicate — the from-import will become unused after
+                        // Phase 2 rewrites references, and the sort step removes
+                        // it.  Use the existing name for qualified references.
+                        transformations.push({ moduleName: existingName, symbols: importedSymbols, aliases: issue.import.aliases });
+                    } else {
+                        // Check if the module name conflicts with a local variable.
+                        const hasConflict = isNameAssignedInDocument(
+                            freshDoc, freshText, moduleName, freshResult.importLines, freshMultilineLines,
+                        );
+                        const usageName = hasConflict ? `${moduleName}_mod` : moduleName;
+                        const importStatement = hasConflict
+                            ? `import ${moduleName} as ${usageName}`
+                            : `import ${moduleName}`;
+
+                        importEdit.replace(freshDoc.uri, issue.range, importStatement);
+                        transformations.push({ moduleName: usageName, symbols: importedSymbols, aliases: issue.import.aliases });
+                    }
                 }
             }
-        }
 
-        await vscode.workspace.applyEdit(importEdit);
-        madeChanges = true;
+            await vscode.workspace.applyEdit(importEdit);
+            madeChanges = true;
 
-        // Phase 2: Replace symbol usages in the updated document
-        const updatedDoc = await vscode.workspace.openTextDocument(editor.document.uri);
-        const updatedText = updatedDoc.getText();
-        const updatedResult = getValidation(updatedDoc);
+            // Phase 2: Replace symbol usages in the updated document
+            const updatedDoc = await vscode.workspace.openTextDocument(editor.document.uri);
+            const updatedText = updatedDoc.getText();
+            const updatedResult = getValidation(updatedDoc);
 
-        const symbolEdit = new vscode.WorkspaceEdit();
-        for (const { moduleName, symbols, aliases } of transformations) {
-            for (const symbol of symbols) {
-                // When the imported name has an alias (e.g. `from json import loads as json_loads`),
-                // code uses the alias, not the original name.  Search for the alias and
-                // replace with the qualified original name (e.g. `json_loads` → `json.loads`).
-                const searchName = aliases.get(symbol) ?? symbol;
-                replaceSymbolUsagesOutsideImports(updatedDoc, symbolEdit, updatedText, searchName, `${moduleName}.${symbol}`, updatedResult.importLines);
+            const symbolEdit = new vscode.WorkspaceEdit();
+            for (const { moduleName, symbols, aliases } of transformations) {
+                for (const symbol of symbols) {
+                    // When the imported name has an alias (e.g. `from json import loads as json_loads`),
+                    // code uses the alias, not the original name.  Search for the alias and
+                    // replace with the qualified original name (e.g. `json_loads` → `json.loads`).
+                    const searchName = aliases.get(symbol) ?? symbol;
+                    replaceSymbolUsagesOutsideImports(updatedDoc, symbolEdit, updatedText, searchName, `${moduleName}.${symbol}`, updatedResult.importLines);
+                }
             }
-        }
 
-        await vscode.workspace.applyEdit(symbolEdit);
+            await vscode.workspace.applyEdit(symbolEdit);
+        }
     }
 
-    // Fifth: Sort imports (also removes unused, expands multi-imports, fixes order)
+    // Seventh: Sort imports (also removes unused, expands multi-imports, fixes order)
     // Iterate until stable (max 5 iterations for safety)
     for (let i = 0; i < 5; i++) {
         // Get fresh document reference and its validation result
@@ -378,6 +439,21 @@ function replaceSymbolUsagesOutsideImports(
             if (charBefore === '.') {
                 continue;
             }
+        }
+
+        // Skip if this is a function/class definition name (preceded by 'def ' or 'class ')
+        const trimmedBefore = beforeMatch.trimEnd();
+        if (trimmedBefore.endsWith('def') || trimmedBefore.endsWith('class')) {
+            continue;
+        }
+
+        // Skip if this is a keyword argument name (followed by '=' without
+        // whitespace, e.g. `func(is_third_party=value)`).  Default values
+        // after type annotations have a space before '=' (`Type = default`)
+        // per PEP 8 and should NOT be skipped.
+        const afterMatch = lineText.substring(matchStart.character + symbol.length);
+        if (afterMatch.startsWith('=') && !afterMatch.startsWith('==')) {
+            continue;
         }
 
         const matchEnd = document.positionAt(match.index + symbol.length);

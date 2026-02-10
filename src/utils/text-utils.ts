@@ -115,68 +115,181 @@ export function isNameUsedOutsideLines(
 }
 
 /**
+ * Checks whether a name is used as an assignment target in the document,
+ * outside of import lines, strings, comments, and multi-line strings.
+ *
+ * Detects simple assignments (`name = ...`), augmented assignments
+ * (`name += ...`), type-annotated bindings (`name: Type`), loop
+ * variables (`for name in`), and context-manager / exception targets
+ * (`as name`).  Attribute assignments (`obj.name = ...`) are ignored.
+ *
+ * This is used by the import fixer to detect naming conflicts before
+ * introducing a new module name into the namespace.
+ */
+export function isNameAssignedInDocument(
+    document: vscode.TextDocument,
+    documentText: string,
+    name: string,
+    importLines: ReadonlySet<number>,
+    multilineStringLines: ReadonlySet<number>,
+): boolean {
+    // Match assignment targets: `name =` (not `==`), `name:`, augmented assignments
+    const assignPattern = new RegExp(
+        `\\b${escapeRegex(name)}\\s*(?:=[^=]|:[^:]|\\+=|-=|\\*=|/=|//=|%=|\\*\\*=|&=|\\|=|\\^=|>>=|<<=)`,
+        'g',
+    );
+
+    if (scanForAssignment(document, documentText, assignPattern, name, importLines, multilineStringLines)) {
+        return true;
+    }
+
+    // Match `for name in` and `as name` (with/except targets)
+    const bindingPattern = new RegExp(
+        `(?:(?:for|as)\\s+${escapeRegex(name)}\\b)`,
+        'g',
+    );
+
+    return scanForAssignment(document, documentText, bindingPattern, name, importLines, multilineStringLines);
+}
+
+/**
+ * Scans the document for matches of a pattern, filtering out matches
+ * inside import lines, strings, comments, multi-line strings, and
+ * attribute access (preceded by `.`).
+ */
+function scanForAssignment(
+    document: vscode.TextDocument,
+    documentText: string,
+    pattern: RegExp,
+    name: string,
+    importLines: ReadonlySet<number>,
+    multilineStringLines: ReadonlySet<number>,
+): boolean {
+    let match;
+    while ((match = pattern.exec(documentText)) !== null) {
+        // Find the position of the name itself within the match
+        const nameIdx = match[0].indexOf(name);
+        const namePos = document.positionAt(match.index + nameIdx);
+
+        if (importLines.has(namePos.line)) continue;
+        if (multilineStringLines.has(namePos.line)) continue;
+
+        const lineText = document.lineAt(namePos.line).text;
+        const before = lineText.substring(0, namePos.character);
+        if (isInStringOrComment(before)) continue;
+
+        // Skip attribute assignments (e.g. `self.name = ...`)
+        if (namePos.character > 0 && documentText[match.index + nameIdx - 1] === '.') continue;
+
+        return true;
+    }
+    return false;
+}
+
+/**
  * Check if position might be in a string or comment (not in f-string expression).
  */
 export function isInStringOrComment(beforeMatch: string): boolean {
-    // Check for comment (only if # is not inside a string)
-    // Simple check: if # appears and we're not in a string at that point
-    const hashIndex = beforeMatch.lastIndexOf('#');
-    if (hashIndex !== -1) {
-        // Check if the # is inside a string by counting quotes before it
-        const beforeHash = beforeMatch.substring(0, hashIndex);
-        const singleQuotesBefore = (beforeHash.match(/'/g) ?? []).length;
-        const doubleQuotesBefore = (beforeHash.match(/"/g) ?? []).length;
-        const tripleSingleBefore = (beforeHash.match(/'''/g) ?? []).length;
-        const tripleDoubleBefore = (beforeHash.match(/"""/g) ?? []).length;
-        const inStrBefore = ((singleQuotesBefore - tripleSingleBefore * 3) % 2 === 1) ||
-            ((doubleQuotesBefore - tripleDoubleBefore * 3) % 2 === 1);
-        if (!inStrBefore) {
-            return true; // Hash is not in a string, so we're in a comment
+    // Walk through the text character by character, tracking string state.
+    // This properly handles f-strings with nested quotes inside {} expressions.
+    let i = 0;
+    const len = beforeMatch.length;
+
+    while (i < len) {
+        const ch = beforeMatch[i];
+
+        // Check for comment outside of any string
+        if (ch === '#') {
+            return true; // Rest of line is a comment
         }
+
+        // Check for string opening
+        if (ch === '"' || ch === "'") {
+            const isFString = i > 0 && (beforeMatch[i - 1] === 'f' || beforeMatch[i - 1] === 'F');
+
+            // Check for triple-quote
+            if (i + 2 < len && beforeMatch[i + 1] === ch && beforeMatch[i + 2] === ch) {
+                const closeIdx = beforeMatch.indexOf(ch + ch + ch, i + 3);
+                if (closeIdx === -1) {
+                    return true; // Unclosed triple-quote — we're in a string
+                }
+                i = closeIdx + 3;
+                continue;
+            }
+
+            // Single-quoted string — walk to find the close, tracking f-string {} nesting
+            const result = skipString(beforeMatch, i, ch, isFString);
+            if (result === -1) {
+                // Reached end of beforeMatch without closing the string.
+                // We're inside this string — unless it's an f-string and
+                // we're inside a {} expression (which is code, not string).
+                return true;
+            }
+            if (result === -2) {
+                // Inside an f-string {} expression at end of text — this is code
+                return false;
+            }
+            i = result;
+            continue;
+        }
+
+        i++;
     }
 
-    // Count quotes before the match position
-    const singleQuotes = (beforeMatch.match(/'/g) ?? []).length;
-    const doubleQuotes = (beforeMatch.match(/"/g) ?? []).length;
-    const tripleSingle = (beforeMatch.match(/'''/g) ?? []).length;
-    const tripleDouble = (beforeMatch.match(/"""/g) ?? []).length;
+    return false; // Not in a string or comment
+}
 
-    // If odd number of unescaped quotes, we might be inside a string
-    const inSingleQuote = (singleQuotes - tripleSingle * 3) % 2 === 1;
-    const inDoubleQuote = (doubleQuotes - tripleDouble * 3) % 2 === 1;
+/**
+ * Walks past a single-quoted or double-quoted string starting at position
+ * `start` (the opening quote character).  Returns the index after the
+ * closing quote, or `-1` if the string is unclosed at end of text (match
+ * is inside the string), or `-2` if we're inside an f-string `{}`
+ * expression at end of text (match is in code).
+ */
+function skipString(text: string, start: number, quoteChar: string, isFString: boolean): number {
+    let i = start + 1; // Move past opening quote
+    const len = text.length;
 
-    if (!inSingleQuote && !inDoubleQuote) {
-        return false; // Not in any string
+    while (i < len) {
+        const c = text[i];
+        if (c === '\\') {
+            i += 2; // Skip escaped character
+            continue;
+        }
+        if (c === quoteChar) {
+            return i + 1; // Past closing quote
+        }
+        if (isFString && c === '{') {
+            // Skip f-string expression, accounting for nested braces and strings
+            i++;
+            let braceDepth = 1;
+            while (i < len && braceDepth > 0) {
+                const ec = text[i];
+                if (ec === '{') {
+                    braceDepth++;
+                } else if (ec === '}') {
+                    braceDepth--;
+                } else if (ec === '"' || ec === "'") {
+                    // Skip nested string inside f-string expression
+                    const q = ec;
+                    i++;
+                    while (i < len && text[i] !== q) {
+                        if (text[i] === '\\') i++;
+                        i++;
+                    }
+                    if (i < len) i++; // Past closing nested quote
+                    continue;
+                }
+                if (braceDepth > 0) i++;
+            }
+            // If braceDepth > 0, we're still inside {} at end of text — code context
+            if (braceDepth > 0) {
+                return -2; // Inside f-string expression (code)
+            }
+            continue;
+        }
+        i++;
     }
 
-    // Check for f-string expression: if we're in a string but inside {}, we're in code
-    // Find the last quote that opened the string
-    const lastSingleQuote = beforeMatch.lastIndexOf("'");
-    const lastDoubleQuote = beforeMatch.lastIndexOf('"');
-    const lastQuotePos = Math.max(lastSingleQuote, lastDoubleQuote);
-
-    if (lastQuotePos === -1) {
-        return inSingleQuote || inDoubleQuote;
-    }
-
-    // Check if this is an f-string (has 'f' or 'F' before the quote)
-    const charBeforeQuote = lastQuotePos > 0 ? beforeMatch[lastQuotePos - 1] : '';
-    const isFString = charBeforeQuote === 'f' || charBeforeQuote === 'F' ||
-        (lastQuotePos > 1 && (beforeMatch[lastQuotePos - 2] === 'f' || beforeMatch[lastQuotePos - 2] === 'F'));
-
-    if (!isFString) {
-        return true; // In a regular string, not f-string
-    }
-
-    // For f-strings, check if we're inside {} (code expression)
-    const afterQuote = beforeMatch.substring(lastQuotePos + 1);
-    const openBraces = (afterQuote.match(/{/g) ?? []).length;
-    const closeBraces = (afterQuote.match(/}/g) ?? []).length;
-
-    // If more open braces than close braces, we're inside an f-string expression (code)
-    if (openBraces > closeBraces) {
-        return false; // Inside f-string {}, this is code
-    }
-
-    return true; // In string portion of f-string
+    return -1; // Unclosed string
 }

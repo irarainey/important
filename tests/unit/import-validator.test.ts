@@ -184,6 +184,16 @@ describe('import-validator', () => {
             const doc = createMockDocument('import requests as req\n\nprint(req.get("url"))');
             assert.ok(hasIssue(doc as any, 'non-standard-import-alias'));
         });
+
+        it('allows alias when the original name conflicts with a local variable', () => {
+            const doc = createMockDocument([
+                'import consent_detection as consent_detection_mod',
+                '',
+                'consent_detection = consent_detection_mod.detect()',
+            ].join('\n'));
+            assert.ok(!hasIssue(doc as any, 'non-standard-import-alias'));
+            assert.ok(hasIssue(doc as any, 'local-name-conflict-alias'));
+        });
     });
 
     // ------------------------------------------------------------------
@@ -262,6 +272,27 @@ describe('import-validator', () => {
             }
 
             assert.ok(matchFound, `Fix logic pattern match failed. Message: ${issue.message}, Aliases: ${Array.from(issue.import.aliases.entries())}`);
+        });
+
+        it('allows alias when the original name conflicts with a local variable', () => {
+            const doc = createMockDocument([
+                'from src.services import consent_detection as consent_detection_mod',
+                '',
+                'consent_detection = consent_detection_mod.detect()',
+            ].join('\n'));
+            assert.ok(!hasIssue(doc as any, 'unnecessary-from-alias'));
+            assert.ok(hasIssue(doc as any, 'local-name-conflict-alias'));
+        });
+
+        it('allows alias when original is a for-loop variable', () => {
+            const doc = createMockDocument([
+                'from src.services import item as item_mod',
+                '',
+                'for item in item_mod.get_items():',
+                '    print(item)',
+            ].join('\n'));
+            assert.ok(!hasIssue(doc as any, 'unnecessary-from-alias'));
+            assert.ok(hasIssue(doc as any, 'local-name-conflict-alias'));
         });
     });
 
@@ -503,6 +534,17 @@ describe('import-validator', () => {
             ].join('\n'));
             const issues = issuesWithCode(doc as any, 'misplaced-import');
             assert.equal(issues[0].severity, DiagnosticSeverity.Warning);
+        });
+
+        it('reports local-name-conflict aliases as Hint', () => {
+            const doc = createMockDocument([
+                'from src.services import consent_detection as consent_detection_mod',
+                '',
+                'consent_detection = consent_detection_mod.detect()',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'local-name-conflict-alias');
+            assert.equal(issues.length, 1);
+            assert.equal(issues[0].severity, DiagnosticSeverity.Hint);
         });
     });
 

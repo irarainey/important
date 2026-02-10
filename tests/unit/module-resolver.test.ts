@@ -11,6 +11,7 @@ import {
     disposeModuleResolver,
     initModuleResolver,
     getFirstPartyModulesSummary,
+    resolveRelativeImport,
 } from '../../src/utils/module-resolver';
 
 /** Minimal mock of ExtensionContext for initModuleResolver. */
@@ -194,6 +195,103 @@ describe('module-resolver', () => {
         it('returns "No first-party modules" when none configured', () => {
             const summary = getFirstPartyModulesSummary();
             assert.ok(summary.includes('No first-party modules'));
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // resolveRelativeImport
+    // ------------------------------------------------------------------
+    describe('resolveRelativeImport', () => {
+        it('resolves a single-dot import to the absolute path', async () => {
+            setWorkspaceFiles([
+                'src/utils/__init__.py',
+                'src/utils/logger.py',
+                'src/utils/retry.py',
+                'src/__init__.py',
+            ]);
+            await initModuleResolver(mockContext());
+
+            const uri = Uri.file('/workspace/src/utils/retry.py');
+            const result = resolveRelativeImport(uri as any, 1, 'logger');
+            assert.equal(result, 'src.utils.logger');
+        });
+
+        it('resolves a double-dot import to the parent package', async () => {
+            setWorkspaceFiles([
+                'src/utils/__init__.py',
+                'src/utils/retry.py',
+                'src/models/__init__.py',
+                'src/models/user.py',
+                'src/__init__.py',
+            ]);
+            await initModuleResolver(mockContext());
+
+            const uri = Uri.file('/workspace/src/utils/retry.py');
+            const result = resolveRelativeImport(uri as any, 2, 'models.user');
+            assert.equal(result, 'src.models.user');
+        });
+
+        it('resolves a dot-only import (from . import foo)', async () => {
+            setWorkspaceFiles([
+                'src/utils/__init__.py',
+                'src/utils/helpers.py',
+                'src/utils/main.py',
+                'src/__init__.py',
+            ]);
+            await initModuleResolver(mockContext());
+
+            const uri = Uri.file('/workspace/src/utils/main.py');
+            const result = resolveRelativeImport(uri as any, 1, 'helpers');
+            assert.equal(result, 'src.utils.helpers');
+        });
+
+        it('returns undefined when the resolver is not initialized', () => {
+            const uri = Uri.file('/workspace/src/utils/retry.py');
+            const result = resolveRelativeImport(uri as any, 1, 'logger');
+            assert.equal(result, undefined);
+        });
+
+        it('returns undefined when the target module does not exist', async () => {
+            setWorkspaceFiles([
+                'src/utils/__init__.py',
+                'src/utils/retry.py',
+                'src/__init__.py',
+            ]);
+            await initModuleResolver(mockContext());
+
+            const uri = Uri.file('/workspace/src/utils/retry.py');
+            const result = resolveRelativeImport(uri as any, 1, 'nonexistent');
+            assert.equal(result, undefined);
+        });
+
+        it('strips leading dots from moduleName (as passed by imp.module)', async () => {
+            setWorkspaceFiles([
+                'src/utils/__init__.py',
+                'src/utils/logger.py',
+                'src/utils/retry.py',
+                'src/__init__.py',
+            ]);
+            await initModuleResolver(mockContext());
+
+            const uri = Uri.file('/workspace/src/utils/retry.py');
+            // imp.module includes leading dots (e.g. '.logger' for `from .logger import ...`)
+            const result = resolveRelativeImport(uri as any, 1, '.logger');
+            assert.equal(result, 'src.utils.logger');
+        });
+
+        it('strips double-dot prefix from moduleName', async () => {
+            setWorkspaceFiles([
+                'src/utils/__init__.py',
+                'src/utils/retry.py',
+                'src/models/__init__.py',
+                'src/models/user.py',
+                'src/__init__.py',
+            ]);
+            await initModuleResolver(mockContext());
+
+            const uri = Uri.file('/workspace/src/utils/retry.py');
+            const result = resolveRelativeImport(uri as any, 2, '..models.user');
+            assert.equal(result, 'src.models.user');
         });
     });
 });
