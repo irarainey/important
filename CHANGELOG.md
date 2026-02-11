@@ -1,3 +1,7 @@
+## 0.4.2
+
+- **Fix: PascalCase symbols flagged even with dot-access**: The `import-modules-not-symbols` dot-access heuristic no longer suppresses violations for PascalCase names, regardless of whether the module is local or third-party. PascalCase names (classes, enums, types) accessing attributes via dot notation (e.g. `StatusEnum.SUCCESS`, `Config.from_dict()`) are now correctly flagged as symbol imports. Previously, dot-access on any third-party name—including PascalCase—was treated as evidence of module usage (to support cases like `PIL.Image.open()`), causing imports like `from utils import StatusEnum` to go unflagged when `StatusEnum.VALUE` appeared in code.
+
 ## 0.4.1
 
 - **Fix: Auto-fix for `no-relative-imports`**: The `no-relative-imports` rule now has an auto-fix that resolves in a single pass. Relative imports (e.g. `from .logger import create_logger`) are converted to absolute imports and, when the result triggers an `import-modules-not-symbols` violation, that is also fixed immediately (e.g. → `import logger`). Previously `fixAllImports()` had no handler for the `no-relative-imports` issue code, and the symbol-import step gated on the original (pre-fix) issue list — so the warning appeared but the fix command either did nothing or required two passes.

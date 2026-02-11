@@ -223,12 +223,10 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
             //     for the imported name itself.
             //  2. Usage pattern: the name is used with dot access (name.attr),
             //     which strongly indicates module-like usage.  Only applies
-            //     to snake_case names for local modules (Python module convention).
-            //     For third-party packages (where we can't verify via
-            //     the filesystem), dot access is checked for all names
-            //     regardless of case, since PascalCase sub-modules like
-            //     `PIL.Image` are common in third-party packages.
-            const isThirdParty = !isLocalModule(imp.module);
+            //     to snake_case names — PascalCase names are almost certainly
+            //     classes, types, or enums whose dot access (e.g.
+            //     `Config.from_dict()` or `StatusEnum.SUCCESS`) should not
+            //     suppress the violation.
             const isModuleImport = !confirmedSymbolImport && imp.names.some(name => {
                 // Filesystem check: does a .py file or package exist?
                 if (isWorkspaceModule(imp.module, name)) {
@@ -236,13 +234,10 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                 }
 
                 // Dot-access check: is the name used with dot access?
-                // For local (workspace) modules, only applies to snake_case
-                // names — PascalCase names are almost certainly classes/types
-                // whose dot access (e.g. Config.from_dict()) should not
-                // suppress the violation.  For third-party packages, we
-                // can't verify the module structure, so dot access is
-                // checked for all names regardless of case (e.g.
-                // PIL.Image.open() where Image is a sub-module).
+                // Only applies to snake_case names — PascalCase names are
+                // almost certainly classes, types, or enums whose dot access
+                // (e.g. `Config.from_dict()` or `StatusEnum.SUCCESS`) should
+                // not suppress the violation, even for third-party packages.
                 // When the name has an alias (e.g. `import Y as Z`), check
                 // the alias for dot-access too — code uses the alias, not
                 // the original name.
@@ -250,7 +245,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                 const namesToCheck = alias ? [name, alias] : [name];
                 for (const checkName of namesToCheck) {
                     const isPascalCase = /^[A-Z]/.test(checkName);
-                    if (isThirdParty || !isPascalCase) {
+                    if (!isPascalCase) {
                         const dotAccessPattern = new RegExp(`\\b${escapeRegex(checkName)}\\.\\w`, 'g');
                         let dotMatch;
                         while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {

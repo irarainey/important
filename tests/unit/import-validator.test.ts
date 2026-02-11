@@ -159,6 +159,20 @@ describe('import-validator', () => {
             const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
             assert.equal(issues.length, 0, 'aliased module with dot-access via alias should not be flagged');
         });
+
+        it('flags PascalCase symbols even with dot-access (enums, classes)', () => {
+            // PascalCase names like enums and classes are almost always symbols,
+            // not modules. Dot-access (e.g. `StatusEnum.SUCCESS`) should NOT
+            // suppress the violation — this is attribute access, not module access.
+            const doc = createMockDocument([
+                'from utils import StatusEnum, get_status',
+                '',
+                'status = StatusEnum.SUCCESS',
+                'result = get_status()',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
+            assert.equal(issues.length, 1, 'PascalCase with dot-access should still be flagged');
+        });
     });
 
     // ------------------------------------------------------------------
