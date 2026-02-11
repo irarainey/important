@@ -15,11 +15,17 @@ import { log } from './logger';
 let knownModulePaths = new Set<string>();
 
 /**
- * Index mapping each path segment to the set of full module paths
- * that contain that segment.  Used by {@link isLocalModule} for O(1)
- * root-module lookups instead of iterating all paths.
+ * Set of top-level (root) directory and file names that exist in the
+ * workspace.  Used by {@link isLocalModule} for O(1) lookups to decide
+ * whether an imported module originates from the workspace.
+ *
+ * Only the **first** segment of each workspace-relative path is
+ * indexed — deeper segments are not root-level Python packages and
+ * must not trigger a "local" classification (e.g. a file at
+ * `tests/fixtures/pydantic.py` should not make `isLocalModule('pydantic')`
+ * return `true`).
  */
-let rootModuleIndex = new Map<string, Set<string>>();
+let rootModuleIndex = new Set<string>();
 
 /**
  * Set of slash-path suffixes for non-`__init__` modules.  Used by
@@ -135,12 +141,15 @@ export function isModuleFile(moduleName: string): boolean {
  * Checks whether a module name corresponds to a local project module
  * by looking up its root package in the workspace filesystem.
  *
- * For example, given `from models.sample_models import User`, calling
- * `isLocalModule("models.sample_models")` returns `true` when the
- * workspace contains `src/models/sample_models.py` (or similar).
+ * Only top-level (root) directories and files in the workspace are
+ * considered — deeply nested directory names do not qualify.  For
+ * example, `isLocalModule("models")` returns `true` when the workspace
+ * has `models/user.py` at the root, but NOT when `models` only exists
+ * as a subdirectory like `src/models/user.py`.
  *
- * This enables correct import grouping: stdlib → third-party → local,
- * matching the ordering that Ruff / isort enforce.
+ * For packages inside a `src/` layout (where the root package is not a
+ * top-level workspace directory), configure them as first-party via
+ * `pyproject.toml` or the `important.knownFirstParty` setting.
  */
 export function isLocalModule(moduleName: string): boolean {
     if (!initialized) {
@@ -354,19 +363,16 @@ async function rebuildCache(): Promise<void> {
  * {@link moduleFileSuffixes}) from {@link knownModulePaths}.
  */
 function rebuildIndices(): void {
-    const segmentIdx = new Map<string, Set<string>>();
+    const roots = new Set<string>();
     const suffixes = new Set<string>();
 
     for (const modulePath of knownModulePaths) {
-        const segments = modulePath.split('/');
-        for (const seg of segments) {
-            let bucket = segmentIdx.get(seg);
-            if (!bucket) {
-                bucket = new Set();
-                segmentIdx.set(seg, bucket);
-            }
-            bucket.add(modulePath);
-        }
+        // Only index the first (root-level) segment — deeper segments
+        // are not root-level Python packages and must not cause
+        // third-party modules to be miscategorised as local.
+        const firstSlash = modulePath.indexOf('/');
+        const rootSegment = firstSlash === -1 ? modulePath : modulePath.substring(0, firstSlash);
+        roots.add(rootSegment);
 
         // Build suffix set for isModuleFile: store the path itself and
         // every unique slash-suffix, excluding __init__ paths.
@@ -387,7 +393,7 @@ function rebuildIndices(): void {
         }
     }
 
-    rootModuleIndex = segmentIdx;
+    rootModuleIndex = roots;
     moduleFileSuffixes = suffixes;
 }
 
@@ -404,16 +410,10 @@ function addToCache(uri: vscode.Uri): void {
 
     knownModulePaths.add(modulePath);
 
-    // Update rootModuleIndex
-    const segments = modulePath.split('/');
-    for (const seg of segments) {
-        let bucket = rootModuleIndex.get(seg);
-        if (!bucket) {
-            bucket = new Set();
-            rootModuleIndex.set(seg, bucket);
-        }
-        bucket.add(modulePath);
-    }
+    // Update rootModuleIndex — only the first segment
+    const firstSlash = modulePath.indexOf('/');
+    const rootSegment = firstSlash === -1 ? modulePath : modulePath.substring(0, firstSlash);
+    rootModuleIndex.add(rootSegment);
 
     // Update moduleFileSuffixes (skip single-segment suffixes)
     if (!modulePath.endsWith('/__init__')) {

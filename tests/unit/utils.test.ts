@@ -161,6 +161,32 @@ describe('text-utils', () => {
             // microservice_requests on the closing """ line should be detected
             assert.ok(isNameUsedOutsideLines(doc as any, text, 'microservice_requests', excludeLines));
         });
+
+        it('ignores triple-quotes inside comments when tracking multi-line strings', () => {
+            // Comments containing """ must not confuse the multi-line
+            // string tracker — the closing-line code should still be
+            // recognised as code, not string content.
+            const doc = createMockDocument([
+                'from other_library.helpers import greet, add',
+                '',
+                '# --- Case 1: after closing """ ---',
+                '# The closing """ and module usage are on the same line.',
+                'TOOL = textwrap.dedent("""',
+                '    some text',
+                '""") + str(greet("schema"))',
+                '',
+                '# --- Case 2: concatenation after """ ---',
+                'INFO = textwrap.dedent("""',
+                '    info text',
+                '""") + str(add(1, 2))',
+            ].join('\n'));
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            // Both names on closing """ lines must be detected as used
+            assert.ok(isNameUsedOutsideLines(doc as any, text, 'greet', excludeLines));
+            assert.ok(isNameUsedOutsideLines(doc as any, text, 'add', excludeLines));
+        });
     });
 
     // ------------------------------------------------------------------

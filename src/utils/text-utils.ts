@@ -52,6 +52,12 @@ export function getMultilineStringLines(document: vscode.TextDocument): Readonly
                 const openIdx = lineText.indexOf(delim);
                 if (openIdx === -1) continue;
 
+                // Skip if the delimiter is inside a comment or string.
+                // For example:  # closing """ on the same line
+                // The `"""` after `#` is comment text, not a real
+                // delimiter.
+                if (isInStringOrComment(lineText.substring(0, openIdx))) continue;
+
                 // Check if there's a matching close on the same line
                 // (after the opening delimiter).
                 const afterOpen = openIdx + 3;

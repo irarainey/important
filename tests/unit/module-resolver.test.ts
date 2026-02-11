@@ -144,6 +144,21 @@ describe('module-resolver', () => {
             // "mypackage" is a root segment
             assert.ok(isLocalModule('mypackage.submodule.core'));
         });
+
+        it('does not match deeply nested directory names as root modules', async () => {
+            setWorkspaceFiles([
+                'tests/fixtures/pydantic/test_models.py',
+                'src/myproject/validators/pydantic.py',
+            ]);
+            await initModuleResolver(mockContext());
+
+            // "pydantic" exists only as a deeply nested name, not a root-level
+            // workspace directory — it should NOT be treated as local.
+            assert.ok(!isLocalModule('pydantic'));
+            // But the actual root segments should be detected
+            assert.ok(isLocalModule('tests'));
+            assert.ok(isLocalModule('src'));
+        });
     });
 
     // ------------------------------------------------------------------
