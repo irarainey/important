@@ -65,11 +65,15 @@ export async function initModuleResolver(context: vscode.ExtensionContext): Prom
     // Watch for Python file creation / deletion to keep the cache current.
     const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.py');
 
-    fileWatcher.onDidCreate(uri => addToCache(uri));
-    fileWatcher.onDidDelete(uri => removeFromCache(uri));
+    // Push the watcher and its event subscriptions into context.subscriptions
+    // so they are deterministically disposed when the extension deactivates.
+    context.subscriptions.push(
+        fileWatcher,
+        fileWatcher.onDidCreate(uri => addToCache(uri)),
+        fileWatcher.onDidDelete(uri => removeFromCache(uri)),
+    );
 
     watcher = fileWatcher;
-    context.subscriptions.push(fileWatcher);
 }
 
 /**

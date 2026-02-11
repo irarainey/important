@@ -124,9 +124,15 @@ export function activate(context: vscode.ExtensionContext): void {
         })
     );
 
-    // Clear diagnostics and validation cache when document is closed (always active)
+    // Clear diagnostics, validation cache, and pending timers when document is closed (always active)
     context.subscriptions.push(
         vscode.workspace.onDidCloseTextDocument(doc => {
+            const uriKey = doc.uri.toString();
+            const pending = pendingValidations.get(uriKey);
+            if (pending) {
+                clearTimeout(pending);
+                pendingValidations.delete(uriKey);
+            }
             diagnosticCollection.delete(doc.uri);
             invalidateValidation(doc.uri);
         })
@@ -163,10 +169,12 @@ export function activate(context: vscode.ExtensionContext): void {
 
     // Watch for pyproject.toml changes to auto-reload first-party modules
     const tomlWatcher = vscode.workspace.createFileSystemWatcher('**/pyproject.toml');
-    tomlWatcher.onDidChange(() => { log('pyproject.toml changed — reloading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Reload failed: ${err}`)); });
-    tomlWatcher.onDidCreate(() => { log('pyproject.toml created — loading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Load failed: ${err}`)); });
-    tomlWatcher.onDidDelete(() => { log('pyproject.toml deleted — reloading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Reload failed: ${err}`)); });
-    context.subscriptions.push(tomlWatcher);
+    context.subscriptions.push(
+        tomlWatcher,
+        tomlWatcher.onDidChange(() => { log('pyproject.toml changed — reloading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Reload failed: ${err}`)); }),
+        tomlWatcher.onDidCreate(() => { log('pyproject.toml created — loading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Load failed: ${err}`)); }),
+        tomlWatcher.onDidDelete(() => { log('pyproject.toml deleted — reloading first-party modules…'); loadFirstPartyModules().catch(err => logError(`Reload failed: ${err}`)); }),
+    );
 
     log('Important extension activated.');
 }
@@ -285,27 +293,30 @@ function registerConfigDependentHandlers(): void {
  * Schedules a debounced validation for a document.
  */
 function scheduleValidation(document: vscode.TextDocument): void {
-    const uri = document.uri.toString();
+    const uriKey = document.uri.toString();
+    // Capture only the URI — avoid holding the full TextDocument alive
+    // for the duration of the timer.
+    const docUri = document.uri;
 
     // Clear any pending validation
-    const existing = pendingValidations.get(uri);
+    const existing = pendingValidations.get(uriKey);
     if (existing) {
         clearTimeout(existing);
     }
 
     // Schedule new validation
     const timeout = setTimeout(async () => {
-        pendingValidations.delete(uri);
+        pendingValidations.delete(uriKey);
         // Use openTextDocument to get a fresh reference to the document
         try {
-            const currentDoc = await vscode.workspace.openTextDocument(document.uri);
+            const currentDoc = await vscode.workspace.openTextDocument(docUri);
             validateDocument(currentDoc);
         } catch {
             // Document may have been closed
         }
     }, VALIDATION_DELAY);
 
-    pendingValidations.set(uri, timeout);
+    pendingValidations.set(uriKey, timeout);
 }
 
 /**
@@ -322,6 +333,6 @@ function validateDocument(document: vscode.TextDocument): void {
         const { issues } = getValidation(document);
         const diagnostics = issuesToDiagnostics(issues);
         diagnosticCollection.set(document.uri, diagnostics);
-    });
+    }).catch(err => logError(`Validation failed for ${document.uri.fsPath}: ${err}`));
 }
 
