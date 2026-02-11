@@ -20,8 +20,8 @@ export function escapeRegex(str: string): string {
  * This is used to prevent the import parser and symbol-usage scanner
  * from treating import-like text inside docstrings as real code.
  */
-export function getMultilineStringLines(document: vscode.TextDocument): ReadonlySet<number> {
-    const mlLines = new Set<number>();
+export function getMultilineStringLines(document: vscode.TextDocument): ReadonlyMap<number, number> {
+    const mlLines = new Map<number, number>();
     let inTriple = false;
     let tripleChar = '';
 
@@ -32,12 +32,18 @@ export function getMultilineStringLines(document: vscode.TextDocument): Readonly
             // Check if this line closes the triple-quote
             const closeIdx = lineText.indexOf(tripleChar);
             if (closeIdx !== -1) {
-                // Closing delimiter found — the portion before it is
-                // still string content, so mark this line.
-                mlLines.add(i);
+                // Closing delimiter found.  Record the column where code
+                // starts (immediately after the closing `"""`).  Lines
+                // like `""") + str(module.Cls.method())` have real code
+                // after the delimiter — consumers use the column value to
+                // skip only matches inside the string portion while still
+                // analysing the code that follows.
+                mlLines.set(i, closeIdx + 3);
                 inTriple = false;
             } else {
-                mlLines.add(i);
+                // Entire line is inside the multi-line string — no code
+                // starts on this line, so use Infinity as the code-start.
+                mlLines.set(i, Infinity);
             }
         } else {
             // Look for an opening triple-quote that is NOT closed on the same line.
@@ -75,7 +81,7 @@ export function isNameUsedOutsideLines(
     documentText: string,
     name: string,
     excludeLines: ReadonlySet<number>,
-    multilineStringLines?: ReadonlySet<number>,
+    multilineStringLines?: ReadonlyMap<number, number>,
 ): boolean {
     const pattern = new RegExp(`\\b${escapeRegex(name)}\\b`, 'g');
     const mlLines = multilineStringLines ?? getMultilineStringLines(document);
@@ -89,8 +95,11 @@ export function isNameUsedOutsideLines(
             continue;
         }
 
-        // Skip if inside a multi-line string (docstring)
-        if (mlLines.has(pos.line)) {
+        // Skip if inside the string portion of a multi-line string.
+        // The map value is the column where code starts on that line;
+        // matches before that column are inside the string.
+        const mlCodeStart = mlLines.get(pos.line);
+        if (mlCodeStart !== undefined && pos.character < mlCodeStart) {
             continue;
         }
 
@@ -101,9 +110,12 @@ export function isNameUsedOutsideLines(
             continue;
         }
 
-        // Skip if in a string or comment
+        // Skip if in a string or comment.  When the line has a closing
+        // multi-line string delimiter, strip the string prefix so that
+        // isInStringOrComment does not mistake the closer for an opener.
         const lineText = document.lineAt(pos.line).text;
-        const beforeMatch = lineText.substring(0, pos.character);
+        const startCol = mlCodeStart ?? 0;
+        const beforeMatch = lineText.substring(startCol, pos.character);
         if (isInStringOrComment(beforeMatch)) {
             continue;
         }
@@ -131,7 +143,7 @@ export function isNameAssignedInDocument(
     documentText: string,
     name: string,
     importLines: ReadonlySet<number>,
-    multilineStringLines: ReadonlySet<number>,
+    multilineStringLines: ReadonlyMap<number, number>,
 ): boolean {
     // Match assignment targets: `name =` (not `==`), `name:`, augmented assignments
     const assignPattern = new RegExp(
@@ -163,7 +175,7 @@ function scanForAssignment(
     pattern: RegExp,
     name: string,
     importLines: ReadonlySet<number>,
-    multilineStringLines: ReadonlySet<number>,
+    multilineStringLines: ReadonlyMap<number, number>,
 ): boolean {
     let match;
     while ((match = pattern.exec(documentText)) !== null) {
@@ -172,10 +184,12 @@ function scanForAssignment(
         const namePos = document.positionAt(match.index + nameIdx);
 
         if (importLines.has(namePos.line)) continue;
-        if (multilineStringLines.has(namePos.line)) continue;
+        const mlCodeStart = multilineStringLines.get(namePos.line);
+        if (mlCodeStart !== undefined && namePos.character < mlCodeStart) continue;
 
         const lineText = document.lineAt(namePos.line).text;
-        const before = lineText.substring(0, namePos.character);
+        const startCol = mlCodeStart ?? 0;
+        const before = lineText.substring(startCol, namePos.character);
         if (isInStringOrComment(before)) continue;
 
         // Skip attribute assignments (e.g. `self.name = ...`)

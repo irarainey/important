@@ -73,7 +73,7 @@ function findUnusedNames(
     documentText: string,
     imp: ImportStatement,
     allImportLines: ReadonlySet<number>,
-    multilineStringLines: ReadonlySet<number>,
+    multilineStringLines: ReadonlyMap<number, number>,
 ): string[] {
     return imp.names.filter(name => {
         if (name === '*') return false;
@@ -251,9 +251,11 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
                         while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
                             const pos = document.positionAt(dotMatch.index);
                             if (pos.line >= imp.line && pos.line <= imp.endLine) continue;
-                            if (multilineStringLines.has(pos.line)) continue;
+                            const mlCodeStart = multilineStringLines.get(pos.line);
+                            if (mlCodeStart !== undefined && pos.character < mlCodeStart) continue;
                             const lineText = document.lineAt(pos.line).text;
-                            const beforeText = lineText.substring(0, pos.character);
+                            const startCol = mlCodeStart ?? 0;
+                            const beforeText = lineText.substring(startCol, pos.character);
                             if (isInStringOrComment(beforeText)) continue;
                             return true;
                         }

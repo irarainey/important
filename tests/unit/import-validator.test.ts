@@ -173,6 +173,20 @@ describe('import-validator', () => {
             const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
             assert.equal(issues.length, 1, 'PascalCase with dot-access should still be flagged');
         });
+
+        it('detects dot-access on multi-line string closing line', () => {
+            // When code follows a closing """ on the same line, dot-access
+            // should still be detected as module usage.
+            const doc = createMockDocument([
+                'from aiinsights.shared_message_lib import microservice_requests',
+                '',
+                'TOOL_OVERVIEW = textwrap.dedent("""',
+                'text in here',
+                '""") + str(microservice_requests.WebSearchRequest.model_json_schema())',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
+            assert.equal(issues.length, 0, 'dot-access after closing """ should suppress violation');
+        });
     });
 
     // ------------------------------------------------------------------

@@ -146,6 +146,21 @@ describe('text-utils', () => {
             // "os" in the docstring should not count as usage
             assert.ok(!isNameUsedOutsideLines(doc as any, text, 'os', excludeLines));
         });
+
+        it('matches names on the closing line of a multi-line string when code follows', () => {
+            const doc = createMockDocument([
+                'from aiinsights import microservice_requests',
+                '',
+                'TOOL_OVERVIEW = textwrap.dedent("""',
+                'text in here',
+                '""") + str(microservice_requests.WebSearchRequest.model_json_schema())',
+            ].join('\n'));
+            const text = doc.getText();
+            const excludeLines = new Set([0]);
+
+            // microservice_requests on the closing """ line should be detected
+            assert.ok(isNameUsedOutsideLines(doc as any, text, 'microservice_requests', excludeLines));
+        });
     });
 
     // ------------------------------------------------------------------
@@ -155,62 +170,62 @@ describe('text-utils', () => {
         it('detects simple assignment', () => {
             const doc = createMockDocument('import foo\n\nfoo = bar()');
             const text = doc.getText();
-            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map()));
         });
 
         it('detects type-annotated assignment', () => {
             const doc = createMockDocument('import foo\n\nfoo: int = 42');
             const text = doc.getText();
-            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map()));
         });
 
         it('detects augmented assignment', () => {
             const doc = createMockDocument('import foo\n\nfoo += 1');
             const text = doc.getText();
-            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map()));
         });
 
         it('detects for-loop variable', () => {
             const doc = createMockDocument('import item\n\nfor item in items:\n    pass');
             const text = doc.getText();
-            assert.ok(isNameAssignedInDocument(doc as any, text, 'item', new Set([0]), new Set()));
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'item', new Set([0]), new Map()));
         });
 
         it('detects as-target in with statement', () => {
             const doc = createMockDocument('import ctx\n\nwith open("f") as ctx:\n    pass');
             const text = doc.getText();
-            assert.ok(isNameAssignedInDocument(doc as any, text, 'ctx', new Set([0]), new Set()));
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'ctx', new Set([0]), new Map()));
         });
 
         it('does not match comparison (==)', () => {
             const doc = createMockDocument('import foo\n\nif foo == 1:\n    pass');
             const text = doc.getText();
-            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map()));
         });
 
         it('does not match attribute assignment (obj.name = ...)', () => {
             const doc = createMockDocument('import foo\n\nself.foo = 1');
             const text = doc.getText();
-            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map()));
         });
 
         it('does not match names on import lines', () => {
             const doc = createMockDocument('import foo\n\nx = 1');
             const text = doc.getText();
             // 'foo' only appears on the import line (line 0)
-            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map()));
         });
 
         it('does not match names inside strings', () => {
             const doc = createMockDocument('import foo\n\nx = "foo = 1"');
             const text = doc.getText();
-            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map()));
         });
 
         it('does not match names inside comments', () => {
             const doc = createMockDocument('import foo\n\n# foo = 1\nx = 1');
             const text = doc.getText();
-            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set()));
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map()));
         });
 
         it('does not match names inside multi-line strings', () => {
@@ -222,7 +237,7 @@ describe('text-utils', () => {
                 'x = 1',
             ].join('\n'));
             const text = doc.getText();
-            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Set([2])));
+            assert.ok(!isNameAssignedInDocument(doc as any, text, 'foo', new Set([0]), new Map([[2, Infinity]])));
         });
 
         it('detects real-world consent_detection conflict', () => {
@@ -232,7 +247,7 @@ describe('text-utils', () => {
                 'consent_detection = await detect_cookie_consent(screenshot, html)',
             ].join('\n'));
             const text = doc.getText();
-            assert.ok(isNameAssignedInDocument(doc as any, text, 'consent_detection', new Set([0]), new Set()));
+            assert.ok(isNameAssignedInDocument(doc as any, text, 'consent_detection', new Set([0]), new Map()));
         });
     });
 });

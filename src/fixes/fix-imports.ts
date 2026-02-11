@@ -418,14 +418,18 @@ function replaceSymbolUsagesOutsideImports(
             continue;
         }
 
-        // Skip if inside a multi-line string (docstring)
-        if (mlLines.has(matchStart.line)) {
+        // Skip if inside the string portion of a multi-line string.
+        const mlCodeStart = mlLines.get(matchStart.line);
+        if (mlCodeStart !== undefined && matchStart.character < mlCodeStart) {
             continue;
         }
 
-        // Skip if in a string or comment
+        // Skip if in a string or comment.  Strip the string prefix on
+        // closing lines so isInStringOrComment doesn't mistake the
+        // closing delimiter for an opener.
         const lineText = document.lineAt(matchStart.line).text;
-        const beforeMatch = lineText.substring(0, matchStart.character);
+        const startCol = mlCodeStart ?? 0;
+        const beforeMatch = lineText.substring(startCol, matchStart.character);
         if (isInStringOrComment(beforeMatch)) {
             continue;
         }
