@@ -149,17 +149,17 @@ describe('text-utils', () => {
 
         it('matches names on the closing line of a multi-line string when code follows', () => {
             const doc = createMockDocument([
-                'from aiinsights import microservice_requests',
+                'from mypackage import service_requests',
                 '',
                 'TOOL_OVERVIEW = textwrap.dedent("""',
                 'text in here',
-                '""") + str(microservice_requests.WebSearchRequest.model_json_schema())',
+                '""") + str(service_requests.WebSearchRequest.model_json_schema())',
             ].join('\n'));
             const text = doc.getText();
             const excludeLines = new Set([0]);
 
-            // microservice_requests on the closing """ line should be detected
-            assert.ok(isNameUsedOutsideLines(doc as any, text, 'microservice_requests', excludeLines));
+            // service_requests on the closing """ line should be detected
+            assert.ok(isNameUsedOutsideLines(doc as any, text, 'service_requests', excludeLines));
         });
 
         it('ignores triple-quotes inside comments when tracking multi-line strings', () => {

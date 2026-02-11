@@ -178,11 +178,11 @@ describe('import-validator', () => {
             // When code follows a closing """ on the same line, dot-access
             // should still be detected as module usage.
             const doc = createMockDocument([
-                'from aiinsights.shared_message_lib import microservice_requests',
+                'from mypackage.messaging import service_requests',
                 '',
                 'TOOL_OVERVIEW = textwrap.dedent("""',
                 'text in here',
-                '""") + str(microservice_requests.WebSearchRequest.model_json_schema())',
+                '""") + str(service_requests.WebSearchRequest.model_json_schema())',
             ].join('\n'));
             const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
             assert.equal(issues.length, 0, 'dot-access after closing """ should suppress violation');
