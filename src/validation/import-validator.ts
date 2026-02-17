@@ -14,6 +14,25 @@ import { parseImports } from './import-parser';
 const SYMBOL_IMPORT_EXEMPTIONS = ['__future__', 'typing', 'typing_extensions', 'collections.abc', 'six.moves'] as const;
 
 /**
+ * Returns `true` when the given import has a `# noqa: important` comment
+ * that suppresses the specified {@link ruleCode}.
+ *
+ * - No `noqaRules` → not suppressed.
+ * - Empty set → blanket suppression (all rules).
+ * - Non-empty set → only the listed codes are suppressed.
+ */
+function isNoqaSuppressed(imp: ImportStatement, ruleCode: string): boolean {
+    if (imp.noqaRules === undefined) {
+        return false;
+    }
+    // Empty set = suppress everything
+    if (imp.noqaRules.size === 0) {
+        return true;
+    }
+    return imp.noqaRules.has(ruleCode);
+}
+
+/**
  * Builds a Range that spans the full extent of an import statement,
  * correctly covering multi-line imports (those using parentheses).
  */
@@ -122,8 +141,9 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
     // consistent results everywhere.
     const unusedNamesMap = new Map<ImportStatement, readonly string[]>();
     for (const imp of imports) {
-        if (imp.module === '__future__' || imp.names.includes('*')) {
-            // __future__ directives and wildcard imports are never flagged as unused.
+        if (imp.module === '__future__' || imp.names.includes('*') || isNoqaSuppressed(imp, 'unused-import')) {
+            // __future__ directives, wildcard imports, and noqa-suppressed
+            // imports are never flagged as unused.
             unusedNamesMap.set(imp, []);
         } else {
             unusedNamesMap.set(imp, findUnusedNames(document, documentText, imp, importLines, multilineStringLines));
@@ -144,7 +164,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
 
     for (const imp of imports) {
         // Rule 1: No relative imports
-        if (imp.level > 0) {
+        if (imp.level > 0 && !isNoqaSuppressed(imp, 'no-relative-imports')) {
             // Try to resolve the relative import to an absolute module
             // path for a more accurate suggested fix.
             const absoluteModule = resolveRelativeImport(document.uri, imp.level, imp.module);
@@ -170,7 +190,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         }
 
         // Rule 2: No wildcard imports
-        if (imp.type === 'from' && imp.names.includes('*')) {
+        if (imp.type === 'from' && imp.names.includes('*') && !isNoqaSuppressed(imp, 'no-wildcard-imports')) {
             issues.push({
                 code: 'no-wildcard-imports',
                 message: 'Wildcard imports are not allowed (Google Python Style Guide). Import specific names instead.',
@@ -181,7 +201,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         }
 
         // Rule 3: No multiple imports on one line (for 'import X, Y' style)
-        if (imp.type === 'import' && imp.names.length > 1) {
+        if (imp.type === 'import' && imp.names.length > 1 && !isNoqaSuppressed(imp, 'no-multiple-imports')) {
             issues.push({
                 code: 'no-multiple-imports',
                 message: 'Multiple imports on one line are not allowed (Google Python Style Guide). Use separate import statements.',
@@ -205,7 +225,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
             exempt => imp.module === exempt || imp.module.startsWith(`${exempt}.`)
         );
 
-        if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*') && !isExempt) {
+        if (imp.type === 'from' && imp.level === 0 && !imp.names.includes('*') && !isExempt && !isNoqaSuppressed(imp, 'import-modules-not-symbols')) {
             const moduleParts = imp.module.split('.');
 
             // Definitive filesystem check: if the module path resolves to
@@ -222,45 +242,72 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
             //  1. Workspace filesystem: a matching .py file or package exists
             //     for the imported name itself.
             //  2. Usage pattern: the name is used with dot access (name.attr),
-            //     which strongly indicates module-like usage.  Only applies
-            //     to snake_case names — PascalCase names are almost certainly
-            //     classes, types, or enums whose dot access (e.g.
-            //     `Config.from_dict()` or `StatusEnum.SUCCESS`) should not
-            //     suppress the violation.
+            //     which strongly indicates module-like usage.
+            //
+            // For PascalCase names we refine the dot-access check by
+            // inspecting the attribute that follows the dot:
+            //  - `Name.UPPER_CASE` (all-caps with underscores/digits) is
+            //    almost certainly enum member or class constant access
+            //    (e.g. `StatusEnum.SUCCESS`) — NOT module usage.
+            //  - `Name.snake_case(…)` or `Name.PascalCase` indicates
+            //    function calls or nested types from a submodule
+            //    (e.g. `Image.open()`, `Image.Resampling`) — IS module usage.
+            //
+            // If every dot-access attribute on a PascalCase name is
+            // UPPER_CASE, the name is treated as a symbol (flagged).
+            // If any attribute is non-UPPER_CASE, the name is treated
+            // as a module (suppressed).
             const isModuleImport = !confirmedSymbolImport && imp.names.some(name => {
                 // Filesystem check: does a .py file or package exist?
                 if (isWorkspaceModule(imp.module, name)) {
                     return true;
                 }
 
-                // Dot-access check: is the name used with dot access?
-                // Only applies to snake_case names — PascalCase names are
-                // almost certainly classes, types, or enums whose dot access
-                // (e.g. `Config.from_dict()` or `StatusEnum.SUCCESS`) should
-                // not suppress the violation, even for third-party packages.
+                // Dot-access check with attribute analysis.
                 // When the name has an alias (e.g. `import Y as Z`), check
                 // the alias for dot-access too — code uses the alias, not
                 // the original name.
                 const alias = imp.aliases.get(name);
                 const namesToCheck = alias ? [name, alias] : [name];
+                const isPascalCase = /^[A-Z]/.test(alias ?? name);
+                let hasDotAccess = false;
+                let hasNonConstantAttr = false;
+
                 for (const checkName of namesToCheck) {
-                    const isPascalCase = /^[A-Z]/.test(checkName);
-                    if (!isPascalCase) {
-                        const dotAccessPattern = new RegExp(`\\b${escapeRegex(checkName)}\\.\\w`, 'g');
-                        let dotMatch;
-                        while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
-                            const pos = document.positionAt(dotMatch.index);
-                            if (pos.line >= imp.line && pos.line <= imp.endLine) continue;
-                            const mlCodeStart = multilineStringLines.get(pos.line);
-                            if (mlCodeStart !== undefined && pos.character < mlCodeStart) continue;
-                            const lineText = document.lineAt(pos.line).text;
-                            const startCol = mlCodeStart ?? 0;
-                            const beforeText = lineText.substring(startCol, pos.character);
-                            if (isInStringOrComment(beforeText)) continue;
+                    const dotAccessPattern = new RegExp(`\\b${escapeRegex(checkName)}\\.(\\w+)`, 'g');
+                    let dotMatch;
+                    while ((dotMatch = dotAccessPattern.exec(documentText)) !== null) {
+                        const pos = document.positionAt(dotMatch.index);
+                        if (pos.line >= imp.line && pos.line <= imp.endLine) continue;
+                        const mlCodeStart = multilineStringLines.get(pos.line);
+                        if (mlCodeStart !== undefined && pos.character < mlCodeStart) continue;
+                        const lineText = document.lineAt(pos.line).text;
+                        const startCol = mlCodeStart ?? 0;
+                        const beforeText = lineText.substring(startCol, pos.character);
+                        if (isInStringOrComment(beforeText)) continue;
+
+                        // For snake_case names, any dot-access is sufficient
+                        // evidence of module usage.
+                        if (!isPascalCase) {
                             return true;
+                        }
+
+                        // For PascalCase names, inspect the accessed attribute.
+                        hasDotAccess = true;
+                        const attr = dotMatch[1];
+                        if (!/^[A-Z][A-Z0-9_]*$/.test(attr)) {
+                            hasNonConstantAttr = true;
                         }
                     }
                 }
+
+                // PascalCase with at least one non-UPPER_CASE attribute
+                // access → likely a module (e.g. Image.open()).
+                // Pure UPPER_CASE access (StatusEnum.SUCCESS) → enum/class.
+                if (isPascalCase && hasDotAccess && hasNonConstantAttr) {
+                    return true;
+                }
+
                 return false;
             });
 
@@ -294,7 +341,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
 
         // Rule 5: Validate `import y as z` aliases (Google style 2.2.4)
         // Only standard abbreviations are permitted for plain import aliases.
-        if (imp.type === 'import' && imp.aliases.size > 0) {
+        if (imp.type === 'import' && imp.aliases.size > 0 && !isNoqaSuppressed(imp, 'non-standard-import-alias')) {
             for (const [original, alias] of imp.aliases) {
                 const standardAlias = STANDARD_IMPORT_ALIASES.get(original);
                 if (standardAlias !== alias) {
@@ -331,7 +378,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         // warrants it.  We can automatically detect duplicate-name conflicts
         // across the file's imports; the remaining conditions are subjective
         // so we flag any alias that has no detectable justification.
-        if (imp.type === 'from' && imp.aliases.size > 0) {
+        if (imp.type === 'from' && imp.aliases.size > 0 && !isNoqaSuppressed(imp, 'unnecessary-from-alias')) {
             for (const [original, alias] of imp.aliases) {
                 // Allow if another import also imports a name called `original`
                 // (count >= 2 means at least one OTHER import has it too)
@@ -370,7 +417,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
 
         // Rule 7: Check for unused imports (uses pre-computed map)
         const unusedNames = unusedNamesMap.get(imp) ?? [];
-        if (unusedNames.length > 0 && !imp.names.includes('*')) {
+        if (unusedNames.length > 0 && !imp.names.includes('*') && !isNoqaSuppressed(imp, 'unused-import')) {
             if (unusedNames.length === imp.names.length) {
                 // All names are unused - entire import is unused
                 issues.push({
@@ -397,7 +444,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
 
         // Rule 10: Misplaced import (not in the top-level import block)
         // TYPE_CHECKING imports are exempt — they belong inside their guard block.
-        if (imp.misplaced && !imp.typeCheckingOnly) {
+        if (imp.misplaced && !imp.typeCheckingOnly && !isNoqaSuppressed(imp, 'misplaced-import')) {
             issues.push({
                 code: 'misplaced-import',
                 message: 'Import should be at the top of the file (Google Python Style Guide). It will be moved when imports are fixed.',
@@ -421,7 +468,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
         const currentCategoryIndex = CATEGORY_ORDER.indexOf(category);
         const lastCategoryIndex = lastCategory ? CATEGORY_ORDER.indexOf(lastCategory) : -1;
 
-        if (lastCategory && currentCategoryIndex < lastCategoryIndex) {
+        if (lastCategory && currentCategoryIndex < lastCategoryIndex && !isNoqaSuppressed(imp, 'wrong-import-order')) {
             issues.push({
                 code: 'wrong-import-order',
                 message: `Import ordering violation: ${category} imports should come before ${lastCategory} imports (Google Python Style Guide).`,
@@ -465,7 +512,7 @@ export function validateImports(document: vscode.TextDocument): ValidationResult
             const currentCategoryIndex = CATEGORY_ORDER.indexOf(category);
             const lastCategoryIndex = lastTcCategory ? CATEGORY_ORDER.indexOf(lastTcCategory) : -1;
 
-            if (lastTcCategory && currentCategoryIndex < lastCategoryIndex) {
+            if (lastTcCategory && currentCategoryIndex < lastCategoryIndex && !isNoqaSuppressed(imp, 'wrong-import-order')) {
                 issues.push({
                     code: 'wrong-import-order',
                     message: `Import ordering violation: ${category} imports should come before ${lastTcCategory} imports (Google Python Style Guide).`,
@@ -512,7 +559,7 @@ function checkAlphabeticalOrder(document: vscode.TextDocument, imports: ImportSt
         const current = imports[i];
 
         // `import` statements must come before `from` statements
-        if (prev.type === 'from' && current.type === 'import') {
+        if (prev.type === 'from' && current.type === 'import' && !isNoqaSuppressed(current, 'wrong-alphabetical-order')) {
             issues.push({
                 code: 'wrong-alphabetical-order',
                 message: `'import ${current.module}' should come before 'from' imports (import statements first).`,
@@ -528,7 +575,7 @@ function checkAlphabeticalOrder(document: vscode.TextDocument, imports: ImportSt
             const prevModule = prev.module.toLowerCase();
             const currentModule = current.module.toLowerCase();
 
-            if (currentModule < prevModule) {
+            if (currentModule < prevModule && !isNoqaSuppressed(current, 'wrong-alphabetical-order')) {
                 issues.push({
                     code: 'wrong-alphabetical-order',
                     message: `Import '${current.module}' should come before '${prev.module}' (alphabetical ordering).`,

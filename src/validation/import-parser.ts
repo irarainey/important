@@ -14,6 +14,32 @@ function stripInlineComment(text: string): string {
 }
 
 /**
+ * Pattern matching `# noqa: important` with an optional `[rule,rule,…]` suffix.
+ *
+ * Captures:
+ *  - Group 1 (optional): the bracket contents, e.g. `unused-import,import-modules-not-symbols`
+ */
+const NOQA_PATTERN = /# *noqa: *important(?:\[([^\]]+)\])?/i;
+
+/**
+ * Extracts a `noqa` suppression set from a raw line of text.
+ *
+ * @returns `undefined` if no `# noqa: important` comment is found,
+ *          an empty `Set` for a blanket suppression, or a `Set`
+ *          containing the specific rule codes listed in brackets.
+ */
+function parseNoqaComment(text: string): ReadonlySet<string> | undefined {
+    const match = text.match(NOQA_PATTERN);
+    if (!match) {
+        return undefined;
+    }
+    if (!match[1]) {
+        return new Set<string>();
+    }
+    return new Set(match[1].split(',').map(s => s.trim()).filter(Boolean));
+}
+
+/**
  * Parses a comma-separated list of imported names, extracting original
  * names and any `as` aliases into parallel structures.
  */
@@ -55,6 +81,7 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
         const module = fromMatch[2];
         const namesStr = stripInlineComment(fromMatch[3]);
         const { names, aliases } = parseNameList(namesStr);
+        const noqaRules = parseNoqaComment(line);
 
         return {
             type: 'from',
@@ -67,6 +94,8 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
             text: trimmed,
             misplaced: false,
             typeCheckingOnly: false,
+            indented: false,
+            ...(noqaRules !== undefined && { noqaRules }),
         };
     }
 
@@ -75,6 +104,7 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
     if (importMatch) {
         const modulesStr = stripInlineComment(importMatch[1]);
         const { names: modules, aliases } = parseNameList(modulesStr);
+        const noqaRules = parseNoqaComment(line);
 
         return {
             type: 'import',
@@ -87,6 +117,8 @@ function parseImportLine(line: string, lineNumber: number): ImportStatement | un
             text: trimmed,
             misplaced: false,
             typeCheckingOnly: false,
+            indented: false,
+            ...(noqaRules !== undefined && { noqaRules }),
         };
     }
 
@@ -115,6 +147,9 @@ function parseMultilineImport(
     let endLine = startLine;
     let fullText = document.lineAt(startLine).text;
 
+    // Check the opening line for a noqa comment (applies to the whole import)
+    let noqaRules = parseNoqaComment(fullText);
+
     // Collect names from subsequent lines until we find ')'
     for (let i = startLine + 1; i < document.lineCount; i++) {
         const line = document.lineAt(i).text;
@@ -125,6 +160,10 @@ function parseMultilineImport(
         const closingIndex = line.indexOf(')');
         if (closingIndex !== -1) {
             namesStr += stripInlineComment(line.substring(0, closingIndex));
+            // Check closing line for noqa comment if not already found
+            if (noqaRules === undefined) {
+                noqaRules = parseNoqaComment(line);
+            }
             break;
         } else {
             namesStr += stripInlineComment(line);
@@ -146,6 +185,8 @@ function parseMultilineImport(
             text: fullText.trim(),
             misplaced: false,
             typeCheckingOnly: false,
+            indented: false,
+            ...(noqaRules !== undefined && { noqaRules }),
         },
         endLine,
     };
@@ -210,16 +251,28 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
             }
         }
 
+        // Compute indentation level of the current line.
+        const lineIndent = trimmed === '' ? 0 : line.length - line.trimStart().length;
+
+        // Imports at column 0 or inside a TYPE_CHECKING block are
+        // "top-level".  Indented imports (lazy imports inside function /
+        // class bodies) are still parsed so they receive a diagnostic,
+        // but they are marked `indented: true` so the sorter never
+        // relocates them.
+        const isTopLevel = lineIndent === 0 || inTypeCheckingBlock;
+        const isIndented = lineIndent > 0 && !inTypeCheckingBlock;
+
         // Check for multiline import (from X import ( without closing ')')
         if (/^\s*from\s+\S+\s+import\s+\(/.test(line) && !line.includes(')')) {
             const multiline = parseMultilineImport(document, i);
             if (multiline) {
                 imports.push({
                     ...multiline.import,
-                    misplaced: topBlockEnded,
+                    misplaced: topBlockEnded || isIndented,
                     typeCheckingOnly: inTypeCheckingBlock,
+                    indented: isIndented,
                 });
-                if (!topBlockEnded) {
+                if (!topBlockEnded && isTopLevel) {
                     foundFirstImport = true;
                     consecutiveNonImportLines = 0;
                 }
@@ -233,23 +286,32 @@ export function parseImports(document: vscode.TextDocument): ImportStatement[] {
         if (parsed) {
             imports.push({
                 ...parsed,
-                misplaced: topBlockEnded,
+                misplaced: topBlockEnded || isIndented,
                 typeCheckingOnly: inTypeCheckingBlock,
+                indented: isIndented,
             });
-            if (!topBlockEnded) {
+            if (!topBlockEnded && isTopLevel) {
                 foundFirstImport = true;
                 consecutiveNonImportLines = 0;
             }
         } else if (foundFirstImport && !topBlockEnded) {
-            // Allow blank lines, comments, docstrings, __all__, and
-            // TYPE_CHECKING guards between/after imports
+            // Allow blank lines, and certain column-0 constructs
+            // (comments, docstrings, __all__, TYPE_CHECKING guards)
+            // between/after imports.  Indented lines are inside
+            // function/class bodies and should NOT reset the counter.
+            // Lines inside a TYPE_CHECKING block are always permitted
+            // so comments / blanks within the guard don't prematurely
+            // end the top block.
             const isPermitted = trimmed === ''
-                || trimmed.startsWith('#')
-                || trimmed.startsWith('"""')
-                || trimmed.startsWith("'''")
-                || trimmed.startsWith('if TYPE_CHECKING')
-                || trimmed.startsWith('if typing.TYPE_CHECKING')
-                || trimmed.startsWith('__all__');
+                || inTypeCheckingBlock
+                || (lineIndent === 0 && (
+                    trimmed.startsWith('#')
+                    || trimmed.startsWith('"""')
+                    || trimmed.startsWith("'''")
+                    || trimmed.startsWith('if TYPE_CHECKING')
+                    || trimmed.startsWith('if typing.TYPE_CHECKING')
+                    || trimmed.startsWith('__all__')
+                ));
 
             if (isPermitted) {
                 consecutiveNonImportLines = 0;

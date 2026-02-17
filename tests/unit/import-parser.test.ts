@@ -285,7 +285,7 @@ describe('import-parser', () => {
             }
         });
 
-        it('detects misplaced import inside a function', () => {
+        it('parses indented import inside a function and marks it indented', () => {
             const doc = createMockDocument([
                 'import os',
                 '',
@@ -298,8 +298,89 @@ describe('import-parser', () => {
             ].join('\n'));
             const imports = parseImports(doc as any);
 
+            // The indented import is parsed and marked as indented
+            // and misplaced — it will be relocated to the top block.
             assert.equal(imports.length, 2);
+            assert.equal(imports[0].module, 'os');
             assert.equal(imports[0].misplaced, false);
+            assert.equal(imports[0].indented, false);
+            assert.equal(imports[1].module, 'hashlib');
+            assert.equal(imports[1].misplaced, true);
+            assert.equal(imports[1].indented, true);
+        });
+
+        it('parses lazy from-import inside a function with docstring and marks it indented', () => {
+            const doc = createMockDocument([
+                'import json',
+                'from typing import Any',
+                '',
+                'import pydantic',
+                '',
+                '',
+                'def to_camel_case_dict(obj: pydantic.BaseModel) -> dict[str, Any]:',
+                '    """Convert a Pydantic model instance to a dict with camelCase keys."""',
+                '    from src.utils.serialization import snake_to_camel',
+                '',
+                '    return {snake_to_camel(k): v for k, v in obj.model_dump().items()}',
+            ].join('\n'));
+            const imports = parseImports(doc as any);
+
+            // The indented from-import inside the function body is
+            // parsed and marked as indented and misplaced.
+            assert.equal(imports.length, 4);
+            assert.deepEqual(
+                imports.map((i: any) => i.module),
+                ['json', 'typing', 'pydantic', 'src.utils.serialization'],
+            );
+            for (const imp of imports.slice(0, 3)) {
+                assert.equal(imp.misplaced, false, `${imp.module} should not be misplaced`);
+                assert.equal(imp.indented, false, `${imp.module} should not be indented`);
+            }
+            assert.equal(imports[3].misplaced, true, 'lazy import should be misplaced');
+            assert.equal(imports[3].indented, true, 'lazy import should be indented');
+        });
+
+        it('parses indented multiline lazy import and marks it indented', () => {
+            const doc = createMockDocument([
+                'import os',
+                '',
+                'def helper():',
+                '    from some.module import (',
+                '        alpha,',
+                '        beta,',
+                '    )',
+                '    return alpha(beta())',
+            ].join('\n'));
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 2);
+            assert.equal(imports[0].module, 'os');
+            assert.equal(imports[0].indented, false);
+            assert.equal(imports[1].module, 'some.module');
+            assert.equal(imports[1].indented, true);
+            assert.equal(imports[1].misplaced, true);
+            assert.deepEqual([...imports[1].names], ['alpha', 'beta']);
+        });
+
+        it('indented docstring does not prevent top block from ending', () => {
+            const doc = createMockDocument([
+                'import os',
+                '',
+                'def foo():',
+                '    """docstring"""',
+                '    x = 1',
+                '',
+                'import sys',
+            ].join('\n'));
+            const imports = parseImports(doc as any);
+
+            // `def foo():` and `    """docstring"""` (indented) should both
+            // count as non-permitted, ending the top block.  `import sys`
+            // at column 0 is then parsed as misplaced.
+            assert.equal(imports.length, 2);
+            assert.equal(imports[0].module, 'os');
+            assert.equal(imports[0].misplaced, false);
+            assert.equal(imports[1].module, 'sys');
             assert.equal(imports[1].misplaced, true);
         });
     });
@@ -389,6 +470,84 @@ describe('import-parser', () => {
             // so only `import sys` is parsed.
             assert.equal(imports.length, 1);
             assert.equal(imports[0].module, 'sys');
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // noqa comment parsing
+    // ------------------------------------------------------------------
+    describe('noqa comment parsing', () => {
+        it('parses blanket noqa comment on import', () => {
+            const doc = createMockDocument('import os  # noqa: important');
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.ok(imports[0].noqaRules !== undefined, 'noqaRules should be set');
+            assert.equal(imports[0].noqaRules!.size, 0, 'blanket noqa has empty set');
+        });
+
+        it('parses per-rule noqa comment', () => {
+            const doc = createMockDocument('import os  # noqa: important[unused-import]');
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.ok(imports[0].noqaRules !== undefined);
+            assert.ok(imports[0].noqaRules!.has('unused-import'));
+            assert.equal(imports[0].noqaRules!.size, 1);
+        });
+
+        it('parses multiple per-rule noqa codes', () => {
+            const doc = createMockDocument(
+                'from os import *  # noqa: important[no-wildcard-imports, unused-import]',
+            );
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.ok(imports[0].noqaRules !== undefined);
+            assert.ok(imports[0].noqaRules!.has('no-wildcard-imports'));
+            assert.ok(imports[0].noqaRules!.has('unused-import'));
+            assert.equal(imports[0].noqaRules!.size, 2);
+        });
+
+        it('is case-insensitive', () => {
+            const doc = createMockDocument('import os  # NOQA: Important');
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.ok(imports[0].noqaRules !== undefined);
+        });
+
+        it('does not parse unrelated comments as noqa', () => {
+            const doc = createMockDocument('import os  # this is fine');
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.equal(imports[0].noqaRules, undefined);
+        });
+
+        it('parses noqa on from-import', () => {
+            const doc = createMockDocument(
+                'from os.path import join  # noqa: important[import-modules-not-symbols]',
+            );
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.ok(imports[0].noqaRules !== undefined);
+            assert.ok(imports[0].noqaRules!.has('import-modules-not-symbols'));
+        });
+
+        it('parses noqa on multiline import (comment on last line)', () => {
+            const doc = createMockDocument([
+                'from os.path import (',
+                '    join,',
+                '    exists,',
+                ')  # noqa: important',
+            ].join('\n'));
+            const imports = parseImports(doc as any);
+
+            assert.equal(imports.length, 1);
+            assert.ok(imports[0].noqaRules !== undefined);
+            assert.equal(imports[0].noqaRules!.size, 0, 'blanket noqa');
         });
     });
 });

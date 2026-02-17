@@ -24,6 +24,16 @@ export interface ImportStatement {
     readonly misplaced: boolean;
     /** `true` when the import is inside an `if TYPE_CHECKING:` block and should be exempt from runtime validation. */
     readonly typeCheckingOnly: boolean;
+    /** `true` when the import is indented (inside a function/class body). Indented imports are flagged but never relocated. */
+    readonly indented: boolean;
+    /**
+     * Set of rule codes suppressed by a `# noqa: important` comment.
+     * - `undefined` — no suppression comment present.
+     * - Empty `ReadonlySet` — all rules suppressed (`# noqa: important`).
+     * - Non-empty `ReadonlySet` — only listed rules suppressed
+     *   (e.g. `# noqa: important[unused-import,import-modules-not-symbols]`).
+     */
+    readonly noqaRules?: ReadonlySet<string>;
 }
 
 /**

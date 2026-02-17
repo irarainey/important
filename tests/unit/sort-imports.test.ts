@@ -551,4 +551,63 @@ describe('sort-imports', () => {
             }
         });
     });
+
+    // ------------------------------------------------------------------
+    // noqa comment preservation
+    // ------------------------------------------------------------------
+    describe('noqa comment preservation', () => {
+        it('preserves blanket noqa comment after sorting', async () => {
+            const sorted = await sortAndGetText([
+                'import sys',
+                'import os  # noqa: important',
+                '',
+                'print(os, sys)',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            assert.ok(sorted!.includes('import os  # noqa: important'), 'noqa comment should be preserved');
+        });
+
+        it('preserves per-rule noqa comment after sorting', async () => {
+            const sorted = await sortAndGetText([
+                'import sys',
+                'import os  # noqa: important[unused-import]',
+                '',
+                'print(sys)',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            assert.ok(
+                sorted!.includes('import os  # noqa: important[unused-import]'),
+                'per-rule noqa comment should be preserved',
+            );
+        });
+
+        it('preserves noqa on from-import after sorting', async () => {
+            const sorted = await sortAndGetText([
+                'from os.path import join  # noqa: important',
+                'import sys',
+                '',
+                'print(sys)',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            assert.ok(
+                sorted!.includes('from os.path import join  # noqa: important'),
+                'noqa comment should be preserved on from-import',
+            );
+        });
+
+        it('does not drop noqa-suppressed unused import during sort', async () => {
+            const sorted = await sortAndGetText([
+                'import sys',
+                'import os  # noqa: important',
+                '',
+                'print(sys)',
+            ].join('\n'));
+
+            assert.ok(sorted);
+            assert.ok(sorted!.includes('import os'), 'noqa-suppressed import should not be removed');
+        });
+    });
 });

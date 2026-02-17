@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import type { ImportCategory, ImportStatement, ValidationResult } from '../types';
 import { CATEGORY_ORDER } from '../types';
 
+/** Pattern matching `# noqa: important` with optional `[rule,…]` suffix. */
+const NOQA_PATTERN = /# *noqa: *important(?:\[[^\]]+\])?/i;
+
 interface NormalizedImport {
     module: string;
     type: 'import' | 'from';
@@ -9,6 +12,24 @@ interface NormalizedImport {
     /** Maps original name → alias for names with `as` clauses. */
     aliases: Map<string, string>;
     category: ImportCategory;
+    /** Original `# noqa: important[…]` comment to preserve in output. */
+    noqaComment?: string;
+}
+
+/**
+ * Extracts the raw `# noqa: important[…]` comment from an import's text,
+ * returning it exactly as written (for round-tripping) or `undefined`.
+ *
+ * For multiline imports the comment is on the opening line (before `(`).
+ */
+function extractNoqaComment(imp: ImportStatement): string | undefined {
+    if (imp.noqaRules === undefined) {
+        return undefined;
+    }
+    // Text may be multiline — check the first line (opening line)
+    const firstLine = imp.text.split('\n')[0];
+    const match = firstLine.match(NOQA_PATTERN);
+    return match ? match[0] : '# noqa: important';
 }
 
 /**
@@ -67,11 +88,14 @@ export async function sortImportsInDocument(
 
         const category = categories.get(imp)!;
         const unused = new Set(unusedNames.get(imp) ?? []);
+        const noqaComment = extractNoqaComment(imp);
+        // noqa-suppressed imports are never filtered as unused.
+        const isPreserved = imp.module === '__future__' || imp.noqaRules !== undefined;
 
         if (imp.type === 'import') {
             // Expand 'import os, sys' into separate imports
             for (const name of imp.names) {
-                if (!unused.has(name)) {
+                if (isPreserved || !unused.has(name)) {
                     const alias = imp.aliases.get(name);
                     const entryAliases = new Map<string, string>();
                     if (alias) entryAliases.set(name, alias);
@@ -81,18 +105,20 @@ export async function sortImportsInDocument(
                         names: [name],
                         aliases: entryAliases,
                         category,
+                        noqaComment,
                     });
                 }
             }
-        } else if (imp.module === '__future__') {
-            // Always preserve __future__ imports — their names are
-            // directives, not symbols referenced elsewhere in code.
+        } else if (isPreserved) {
+            // Always preserve __future__ and noqa-suppressed imports —
+            // their names should not be filtered.
             normalized.push({
                 module: imp.module,
                 type: 'from',
                 names: [...imp.names],
                 aliases: new Map(imp.aliases),
                 category,
+                noqaComment,
             });
         } else if (imp.names.includes('*')) {
             // Keep wildcard imports as-is
@@ -102,6 +128,7 @@ export async function sortImportsInDocument(
                 names: ['*'],
                 aliases: new Map<string, string>(),
                 category,
+                noqaComment,
             });
         } else {
             // Filter to only used names (those NOT in the unused set)
@@ -118,6 +145,7 @@ export async function sortImportsInDocument(
                     names: usedNames,
                     aliases: filteredAliases,
                     category,
+                    noqaComment,
                 });
             }
         }
@@ -189,9 +217,11 @@ export async function sortImportsInDocument(
         const categoryImports = groups[category];
         if (categoryImports.length > 0) {
             const lines = categoryImports.map(imp => {
+                const suffix = imp.noqaComment ? `  ${imp.noqaComment}` : '';
                 if (imp.type === 'import') {
                     const alias = imp.aliases.get(imp.module);
-                    return alias ? `import ${imp.module} as ${alias}` : `import ${imp.module}`;
+                    const base = alias ? `import ${imp.module} as ${alias}` : `import ${imp.module}`;
+                    return `${base}${suffix}`;
                 } else {
                     // Sort names using Ruff/isort order-by-type:
                     // CONSTANT_CASE → CamelCase → snake_case, then alphabetically.
@@ -200,7 +230,7 @@ export async function sortImportsInDocument(
                         const alias = imp.aliases.get(n);
                         return alias ? `${n} as ${alias}` : n;
                     });
-                    return formatFromImport(imp.module, nameFragments, lineLength);
+                    return formatFromImport(imp.module, nameFragments, lineLength) + suffix;
                 }
             });
             sortedBlocks.push(lines.join('\n'));
@@ -221,7 +251,7 @@ export async function sortImportsInDocument(
         ? buildSortedTypeCheckingBlock(tcImports, categories, unusedNames, lineLength, document)
         : undefined;
 
-    // Separate top-block and misplaced imports (excluding TYPE_CHECKING imports)
+    // Separate top-block and misplaced imports (excluding TYPE_CHECKING imports).
     const topBlockImports = imports.filter(imp => !imp.misplaced && !imp.typeCheckingOnly);
     const misplacedImports = imports.filter(imp => imp.misplaced && !imp.typeCheckingOnly);
 
@@ -410,23 +440,30 @@ function buildSortedTypeCheckingBlock(
     for (const imp of tcImports) {
         const category = categories.get(imp)!;
         const unused = new Set(unusedNames.get(imp) ?? []);
+        const noqaComment = extractNoqaComment(imp);
+        const isPreserved = imp.noqaRules !== undefined;
 
         if (imp.type === 'import') {
             for (const name of imp.names) {
-                if (!unused.has(name)) {
+                if (isPreserved || !unused.has(name)) {
                     const alias = imp.aliases.get(name);
                     const entryAliases = new Map<string, string>();
                     if (alias) entryAliases.set(name, alias);
                     normalized.push({
                         module: name, type: 'import', names: [name],
-                        aliases: entryAliases, category,
+                        aliases: entryAliases, category, noqaComment,
                     });
                 }
             }
         } else if (imp.names.includes('*')) {
             normalized.push({
                 module: imp.module, type: 'from', names: ['*'],
-                aliases: new Map<string, string>(), category,
+                aliases: new Map<string, string>(), category, noqaComment,
+            });
+        } else if (isPreserved) {
+            normalized.push({
+                module: imp.module, type: 'from', names: [...imp.names],
+                aliases: new Map(imp.aliases), category, noqaComment,
             });
         } else {
             const usedNames = imp.names.filter(name => !unused.has(name));
@@ -438,7 +475,7 @@ function buildSortedTypeCheckingBlock(
                 }
                 normalized.push({
                     module: imp.module, type: 'from', names: usedNames,
-                    aliases: filteredAliases, category,
+                    aliases: filteredAliases, category, noqaComment,
                 });
             }
         }
@@ -501,11 +538,13 @@ function buildSortedTypeCheckingBlock(
         const categoryImports = groups[category];
         if (categoryImports.length > 0) {
             const lines = categoryImports.map(imp => {
+                const suffix = imp.noqaComment ? `  ${imp.noqaComment}` : '';
                 if (imp.type === 'import') {
                     const alias = imp.aliases.get(imp.module);
-                    return alias
+                    const base = alias
                         ? `${indent}import ${imp.module} as ${alias}`
                         : `${indent}import ${imp.module}`;
+                    return `${base}${suffix}`;
                 } else {
                     // Sort names using Ruff/isort order-by-type:
                     // CONSTANT_CASE → CamelCase → snake_case, then alphabetically.
@@ -514,7 +553,7 @@ function buildSortedTypeCheckingBlock(
                         const alias = imp.aliases.get(n);
                         return alias ? `${n} as ${alias}` : n;
                     });
-                    return formatFromImportIndented(imp.module, nameFragments, effectiveLineLength, indent);
+                    return formatFromImportIndented(imp.module, nameFragments, effectiveLineLength, indent) + suffix;
                 }
             });
             sortedBlocks.push(lines.join('\n'));

@@ -160,10 +160,10 @@ describe('import-validator', () => {
             assert.equal(issues.length, 0, 'aliased module with dot-access via alias should not be flagged');
         });
 
-        it('flags PascalCase symbols even with dot-access (enums, classes)', () => {
-            // PascalCase names like enums and classes are almost always symbols,
-            // not modules. Dot-access (e.g. `StatusEnum.SUCCESS`) should NOT
-            // suppress the violation — this is attribute access, not module access.
+        it('flags PascalCase names with UPPER_CASE-only dot-access (enum pattern)', () => {
+            // When all dot-access attributes on a PascalCase name are
+            // UPPER_CASE (e.g. StatusEnum.SUCCESS), it's enum/class constant
+            // access — not module usage — so the violation should be flagged.
             const doc = createMockDocument([
                 'from utils import StatusEnum, get_status',
                 '',
@@ -171,7 +171,69 @@ describe('import-validator', () => {
                 'result = get_status()',
             ].join('\n'));
             const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
-            assert.equal(issues.length, 1, 'PascalCase with dot-access should still be flagged');
+            assert.equal(issues.length, 1, 'UPPER_CASE-only dot-access should still be flagged');
+        });
+
+        it('does not flag PascalCase names with non-UPPER_CASE dot-access (module pattern)', () => {
+            // When a PascalCase name accesses a non-UPPER_CASE attribute
+            // (e.g. Image.open()), it's likely a submodule — suppress.
+            const doc = createMockDocument([
+                'from utils import Config',
+                '',
+                'cfg = Config.from_dict({"a": 1})',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
+            assert.equal(issues.length, 0, 'non-UPPER_CASE dot-access on PascalCase should suppress');
+        });
+
+        it('flags PascalCase symbols WITHOUT dot-access', () => {
+            // When PascalCase names are NOT used with dot-access, they
+            // are almost certainly symbols (classes instantiated, etc.).
+            const doc = createMockDocument([
+                'from fastmcp import FastMCP',
+                '',
+                'app = FastMCP("test")',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
+            assert.equal(issues.length, 1, 'PascalCase without dot-access should be flagged');
+        });
+
+        it('does not flag from PIL import Image with dot-access usage', () => {
+            // PIL.Image is a submodule despite being PascalCase.
+            // Dot-access like Image.open() must suppress the violation.
+            const doc = createMockDocument([
+                'from PIL import Image',
+                '',
+                'img = Image.open("test.png")',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
+            assert.equal(issues.length, 0, 'PIL.Image with dot-access should not be flagged');
+        });
+
+        it('does not flag PascalCase with mixed dot-access including non-UPPER_CASE', () => {
+            // Image.Resampling is PascalCase (non-UPPER_CASE) so the
+            // presence of at least one non-constant attribute suppresses.
+            const doc = createMockDocument([
+                'from PIL import Image',
+                '',
+                'img = Image.open("test.png")',
+                'resized = img.resize((100, 100), Image.Resampling.LANCZOS)',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
+            assert.equal(issues.length, 0, 'mixed dot-access with non-UPPER_CASE attr should suppress');
+        });
+
+        it('flags PascalCase enum with multiple UPPER_CASE-only accesses', () => {
+            // When all accessed attributes are UPPER_CASE, it's enum usage.
+            const doc = createMockDocument([
+                'from mylib import Color',
+                '',
+                'primary = Color.RED',
+                'secondary = Color.BLUE',
+                'tertiary = Color.GREEN',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'import-modules-not-symbols');
+            assert.equal(issues.length, 1, 'all UPPER_CASE attributes should still flag');
         });
 
         it('detects dot-access on multi-line string closing line', () => {
@@ -486,6 +548,47 @@ describe('import-validator', () => {
             const issues = issuesWithCode(doc as any, 'misplaced-import');
             assert.equal(issues.length, 0);
         });
+
+        it('flags indented lazy import as misplaced', () => {
+            const doc = createMockDocument([
+                'import json',
+                'from typing import Any',
+                '',
+                'import pydantic',
+                '',
+                '',
+                'def to_camel_case_dict(obj: pydantic.BaseModel) -> dict[str, Any]:',
+                '    """Convert a Pydantic model."""',
+                '    from src.utils.serialization import snake_to_camel',
+                '',
+                '    return {snake_to_camel(k): v for k, v in obj.model_dump().items()}',
+            ].join('\n'));
+            const issues = issuesWithCode(doc as any, 'misplaced-import');
+            assert.equal(issues.length, 1);
+            assert.ok(issues[0].message.includes('top of the file'));
+        });
+
+        it('applies all rules to indented imports (not just misplaced)', () => {
+            const doc = createMockDocument([
+                'import os',
+                '',
+                'def helper():',
+                '    from os.path import join',
+                '    return join("a", "b")',
+                '',
+                'print(os.name)',
+            ].join('\n'));
+            const result = validateImports(doc as any);
+
+            // Indented imports should get all applicable rules,
+            // including import-modules-not-symbols and misplaced-import.
+            const indentedIssues = result.issues.filter(
+                i => i.import.module === 'os.path',
+            );
+            assert.ok(indentedIssues.length >= 2, 'should have misplaced + symbol import issues');
+            assert.ok(indentedIssues.some(i => i.code === 'misplaced-import'));
+            assert.ok(indentedIssues.some(i => i.code === 'import-modules-not-symbols'));
+        });
     });
 
     // ------------------------------------------------------------------
@@ -621,6 +724,78 @@ describe('import-validator', () => {
             ].join('\n'));
             const result = validateImports(doc as any);
             assert.equal(result.issues.length, 0);
+        });
+    });
+
+    // ------------------------------------------------------------------
+    // noqa suppression
+    // ------------------------------------------------------------------
+    describe('noqa suppression', () => {
+        it('blanket noqa suppresses all violations on an import', () => {
+            const doc = createMockDocument([
+                'from os.path import join  # noqa: important',
+                '',
+                'x = 1',
+            ].join('\n'));
+            const result = validateImports(doc as any);
+
+            // Would normally have import-modules-not-symbols + unused-import
+            assert.equal(result.issues.length, 0);
+        });
+
+        it('per-rule noqa suppresses only the specified rule', () => {
+            const doc = createMockDocument([
+                'from os.path import join  # noqa: important[import-modules-not-symbols]',
+                '',
+                'print(join("/a", "b"))',
+            ].join('\n'));
+            const result = validateImports(doc as any);
+
+            // import-modules-not-symbols is suppressed
+            const symbolIssues = result.issues.filter(i => i.code === 'import-modules-not-symbols');
+            assert.equal(symbolIssues.length, 0);
+        });
+
+        it('per-rule noqa does not suppress other rules', () => {
+            const doc = createMockDocument([
+                'from os.path import join  # noqa: important[import-modules-not-symbols]',
+                '',
+                'x = 1',  // join is unused
+            ].join('\n'));
+            const result = validateImports(doc as any);
+
+            // unused-import is NOT suppressed
+            const unusedIssues = result.issues.filter(i => i.code === 'unused-import');
+            assert.equal(unusedIssues.length, 1);
+        });
+
+        it('noqa suppresses wildcard import violation', () => {
+            const doc = createMockDocument([
+                'from os import *  # noqa: important[no-wildcard-imports]',
+                '',
+                'x = path.join("a", "b")',
+            ].join('\n'));
+            const result = validateImports(doc as any);
+
+            const wildcardIssues = result.issues.filter(i => i.code === 'no-wildcard-imports');
+            assert.equal(wildcardIssues.length, 0);
+        });
+
+        it('noqa suppresses unused-import and preserves in unusedNames', () => {
+            const doc = createMockDocument([
+                'import os  # noqa: important[unused-import]',
+                '',
+                'x = 1',
+            ].join('\n'));
+            const result = validateImports(doc as any);
+
+            // No unused-import issue
+            const unusedIssues = result.issues.filter(i => i.code === 'unused-import');
+            assert.equal(unusedIssues.length, 0);
+
+            // unusedNames should be empty (preserved as used)
+            const unused = result.unusedNames.get(result.imports[0])!;
+            assert.deepEqual([...unused], []);
         });
     });
 });
